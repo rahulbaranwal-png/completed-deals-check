@@ -44,7 +44,13 @@ $SshExe = if (Test-Path -LiteralPath $BundledSsh) {
 
 $GitBaseArguments = @("--git-dir=$GitDirectory", "--work-tree=$ProjectRoot")
 $PreviousSshCommand = $env:GIT_SSH_COMMAND
-$env:GIT_SSH_COMMAND = ('"{0}" -i "{1}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="{2}"' -f $SshExe, $PrivateKey, $KnownHosts)
+$SshExeForCommand = $SshExe.Replace("\", "/")
+$PrivateKeyForCommand = $PrivateKey.Replace("\", "/")
+$KnownHostsForCommand = $KnownHosts.Replace("\", "/")
+if (-not (Test-Path -LiteralPath $KnownHosts)) {
+  New-Item -ItemType File -Path $KnownHosts | Out-Null
+}
+$env:GIT_SSH_COMMAND = ('"{0}" -i "{1}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile={2}"' -f $SshExeForCommand, $PrivateKeyForCommand, $KnownHostsForCommand)
 
 try {
   & $GitExe @GitBaseArguments config user.name "Rahul Baranwal"

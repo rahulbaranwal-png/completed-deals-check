@@ -545,10 +545,14 @@ export default function Home() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">A</span>
-          <div>
-            <strong>Align</strong>
-            <span>Completed deals check</span>
+          <div className="brand-logos" aria-label="Origin to Gain">
+            <img className="brand-logo brand-logo-origin" src="/origin-logo.png" alt="Origin" />
+            <span className="logo-arrow" aria-hidden="true">→</span>
+            <img className="brand-logo brand-logo-gain" src="/gain-logo.png" alt="Gain" />
+          </div>
+          <div className="brand-copy">
+            <strong>Completed deals check</strong>
+            <span>Internal data review</span>
           </div>
         </div>
         <div className="topbar-actions">
@@ -560,18 +564,17 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="hero">
+      <section className="dashboard-intro">
         <div>
-          <p className="eyebrow">Completed deal enrichment</p>
-          <h1>Fill Gain’s missing deal intelligence with confidence.</h1>
-          <p className="hero-copy">
-            Compare completed-deal exports, review every proposed field, and create an audit-ready Gain update file. Origin stays read-only.
+          <p className="eyebrow">Completed deals</p>
+          <h1>Compare Origin and Gain exports</h1>
+          <p className="intro-copy">
+            Upload both files, review missing fields, then export approved Gain updates.
           </p>
         </div>
-        <div className="guardrail-card">
-          <span className="guardrail-label">Current safety rule</span>
+        <div className="rule-note">
           <strong>Add to blanks only</strong>
-          <p>Existing Gain values are never overwritten automatically. Conflicts stay in review.</p>
+          <span>Existing Gain values are never overwritten. Conflicts stay in review.</span>
         </div>
       </section>
 
@@ -582,7 +585,8 @@ export default function Home() {
             accept=".csv,text/csv"
             onChange={(event) => event.target.files?.[0] && handleFile(event.target.files[0], "origin")}
           />
-          <span className="upload-source">01 · Origin export</span>
+          <img className="source-logo source-logo-origin" src="/origin-logo.png" alt="Origin" />
+          <span className="upload-source">Origin export</span>
           <strong>{originFileName}</strong>
           <span>{originDeals.length} completed deals ready</span>
           <small>Choose CSV</small>
@@ -600,7 +604,8 @@ export default function Home() {
             accept=".csv,text/csv"
             onChange={(event) => event.target.files?.[0] && handleFile(event.target.files[0], "gain")}
           />
-          <span className="upload-source">02 · Gain export</span>
+          <img className="source-logo source-logo-gain" src="/gain-logo.png" alt="Gain" />
+          <span className="upload-source">Gain export</span>
           <strong>{gainFileName}</strong>
           <span>{gainDeals.length} completed deals ready</span>
           <small>Choose CSV</small>

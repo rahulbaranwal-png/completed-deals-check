@@ -21,7 +21,10 @@ test("server-renders Completed deals check", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>Completed deals check<\/title>/i);
-  assert.match(html, /Completed deal enrichment/i);
+  assert.match(html, /\/origin-logo\.png/i);
+  assert.match(html, /\/gain-logo\.png/i);
+  assert.match(html, /Compare Origin and Gain exports/i);
+  assert.match(html, /Completed deals/i);
   assert.match(html, /Origin remains read-only/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });
