@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $ProjectRoot = $PSScriptRoot
 $WorkDirectory = Join-Path $ProjectRoot "work"
-$AutoSyncScript = Join-Path $ProjectRoot "scripts\Start-GitHubAutoSync.ps1"
+$SyncScript = Join-Path $ProjectRoot "scripts\Sync-ToGitHub.ps1"
 $SyncOutputLog = Join-Path $WorkDirectory "github-auto-sync.log"
 $SyncErrorLog = Join-Path $WorkDirectory "github-auto-sync.error.log"
 
@@ -14,9 +14,14 @@ if (-not (Test-Path -LiteralPath $WorkDirectory)) {
   New-Item -ItemType Directory -Path $WorkDirectory | Out-Null
 }
 
-$PowerShellExe = (Get-Command powershell.exe -ErrorAction Stop).Source
-$AutoSyncArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$AutoSyncScript`""
-$AutoSyncProcess = Start-Process -FilePath $PowerShellExe -ArgumentList $AutoSyncArguments -WorkingDirectory $ProjectRoot -WindowStyle Hidden -RedirectStandardOutput $SyncOutputLog -RedirectStandardError $SyncErrorLog -PassThru
+$AutoSyncJob = Start-Job -ScriptBlock {
+  param($SyncScriptPath, $OutputLogPath, $ErrorLogPath)
+
+  while ($true) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $SyncScriptPath 1>> $OutputLogPath 2>> $ErrorLogPath
+    Start-Sleep -Seconds 60
+  }
+} -ArgumentList $SyncScript, $SyncOutputLog, $SyncErrorLog
 
 $NodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
 $NodeExe = if ($NodeCommand) {
@@ -26,13 +31,15 @@ $NodeExe = if ($NodeCommand) {
 }
 
 if (-not (Test-Path -LiteralPath $NodeExe)) {
-  Stop-Process -Id $AutoSyncProcess.Id -Force -ErrorAction SilentlyContinue
+  Stop-Job -Job $AutoSyncJob -ErrorAction SilentlyContinue
+  Remove-Job -Job $AutoSyncJob -Force -ErrorAction SilentlyContinue
   throw "Node.js was not found. Open the project in Codex once or install Node.js 22.13 or later."
 }
 
 $VinextCli = Join-Path $ProjectRoot "node_modules\vinext\dist\cli.js"
 if (-not (Test-Path -LiteralPath $VinextCli)) {
-  Stop-Process -Id $AutoSyncProcess.Id -Force -ErrorAction SilentlyContinue
+  Stop-Job -Job $AutoSyncJob -ErrorAction SilentlyContinue
+  Remove-Job -Job $AutoSyncJob -Force -ErrorAction SilentlyContinue
   throw "The app dependencies are missing. Run pnpm install in the project folder once."
 }
 
@@ -55,5 +62,6 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "The local server stopped with an error." }
 } finally {
   Pop-Location
-  Stop-Process -Id $AutoSyncProcess.Id -Force -ErrorAction SilentlyContinue
+  Stop-Job -Job $AutoSyncJob -ErrorAction SilentlyContinue
+  Remove-Job -Job $AutoSyncJob -Force -ErrorAction SilentlyContinue
 }
