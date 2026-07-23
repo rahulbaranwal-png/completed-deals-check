@@ -420,9 +420,10 @@ body { background-image: none; }
 .rule-note span { color: var(--muted); font-size: 10px; line-height: 1.4; }
 
 .baseline-strip {
-  max-width: 1320px;
+  width: calc(100% - clamp(32px, 6vw, 64px));
+  max-width: 1256px;
   margin: 0 auto 16px;
-  padding: 14px clamp(16px, 3vw, 32px);
+  padding: 14px 16px;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   background: rgba(255,255,255,0.72);
