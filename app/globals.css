@@ -484,6 +484,16 @@ body { background-image: none; }
 
 footer { max-width: 1320px; padding: 0 clamp(16px, 3vw, 32px) 24px; }
 
+@media (max-width: 1050px) {
+  .workspace { grid-template-columns: minmax(0, 1fr); }
+  .queue-panel { border-radius: 12px 12px 0 0; }
+  .detail-panel {
+    border-left: 1px solid var(--line);
+    border-top: 0;
+    border-radius: 0 0 12px 12px;
+  }
+}
+
 @media (max-width: 760px) {
   .dashboard-intro { align-items: stretch; flex-direction: column; }
   .rule-note { min-width: 0; }
