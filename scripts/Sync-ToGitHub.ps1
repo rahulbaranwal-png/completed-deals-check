@@ -49,25 +49,12 @@ if (-not (Test-Path -LiteralPath $KnownHosts)) {
   New-Item -ItemType File -Path $KnownHosts | Out-Null
 }
 
-if (-not ("CompletedDealsCheck.NativePath" -as [type])) {
-  Add-Type -Namespace CompletedDealsCheck -Name NativePath -MemberDefinition @"
-    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
-    public static extern int GetShortPathName(string longPath, System.Text.StringBuilder shortPath, int shortPathLength);
-"@
-}
-
-function Convert-ToSshPath([string]$Path) {
-  $Buffer = New-Object System.Text.StringBuilder 1024
-  $Length = [CompletedDealsCheck.NativePath]::GetShortPathName($Path, $Buffer, $Buffer.Capacity)
-  $ResolvedPath = if ($Length -gt 0) { $Buffer.ToString() } else { $Path }
-  return $ResolvedPath.Replace("\", "/")
-}
-
-$SshExeForCommand = Convert-ToSshPath $SshExe
-$PrivateKeyForCommand = Convert-ToSshPath $PrivateKey
-$KnownHostsForCommand = Convert-ToSshPath $KnownHosts
-$env:GIT_SSH_COMMAND = ('{0} -i {1} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={2}' -f $SshExeForCommand, $PrivateKeyForCommand, $KnownHostsForCommand)
+$SshExeForCommand = $SshExe.Replace("\", "/")
+$PrivateKeyForCommand = $PrivateKey.Replace("\", "/")
+$env:GIT_SSH_COMMAND = ('"{0}" -i "{1}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=work/github-known-hosts' -f $SshExeForCommand, $PrivateKeyForCommand)
 $env:GIT_SSH_VARIANT = "ssh"
+
+Push-Location $ProjectRoot
 
 try {
   & $GitExe @GitBaseArguments config user.name "Rahul Baranwal"
@@ -107,6 +94,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "Could not upload the project to GitHub. The local save point is still safe and will be retried." }
   Write-Host "GitHub is up to date."
 } finally {
+  Pop-Location
   $env:GIT_SSH_COMMAND = $PreviousSshCommand
   $env:GIT_SSH_VARIANT = $PreviousSshVariant
 }
