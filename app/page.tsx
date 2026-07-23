@@ -566,7 +566,7 @@ export default function Home() {
     setFilter("all");
     if (isOriginUpload) setComparedOriginFileName(originFileName);
     setNotice(
-      `Comparison complete: ${dealsToCompare.length} new Origin deals checked against ${gainDeals.length} Gain deals; ${skippedOriginDeals} previously checked deals skipped.`,
+      `Comparison complete: ${dealsToCompare.length} eligible Origin deals checked against ${gainDeals.length} Gain deals; ${skippedOriginDeals} cutoff/unchanged deals skipped.`,
     );
   }
 
@@ -732,15 +732,15 @@ export default function Home() {
           </strong>
           <span>
             {baseline
-              ? `${baseline.totalChecked} deal keys saved locally. Same-date additions are still detected.`
+              ? `${baseline.totalChecked} baseline rows saved locally. Date plus company ID/name controls filtering.`
               : "After review, complete the run once to make this export the baseline for next time."}
           </span>
         </div>
         <div className="baseline-actions">
           {isOriginUpload && (
             <span>
-              <strong>{originDealsForRun.length} new</strong>
-              <small>{skippedOriginDeals} previously checked skipped</small>
+              <strong>{originDealsForRun.length} to review</strong>
+              <small>{skippedOriginDeals} cutoff/unchanged skipped</small>
             </span>
           )}
           <button
@@ -771,7 +771,7 @@ export default function Home() {
           <strong>{originFileName}</strong>
           <span>
             {isOriginUpload
-              ? `${originDealsForRun.length} new of ${originDeals.length} total deals`
+              ? `${originDealsForRun.length} to review of ${originDeals.length} total deals`
               : `${originDeals.length} completed deals ready`}
           </span>
           <small>Choose CSV</small>
@@ -798,7 +798,7 @@ export default function Home() {
       </section>
 
       <section className="metric-grid" aria-label="Comparison summary">
-        <article><span>New Origin deals</span><strong>{metrics.scanned}</strong><small>Scanned this run</small></article>
+        <article><span>Origin deals to review</span><strong>{metrics.scanned}</strong><small>After cutoff filtering</small></article>
         <article><span>Safe matches</span><strong>{metrics.matched}</strong><small>Linked to Gain</small></article>
         <article className="metric-mint"><span>Missing fields</span><strong>{metrics.missing}</strong><small>Eligible to add</small></article>
         <article className="metric-amber"><span>Conflicts</span><strong>{metrics.conflicts}</strong><small>Need a decision</small></article>

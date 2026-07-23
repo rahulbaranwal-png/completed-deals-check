@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
+import {
+  buildDealSnapshots,
+  filterOriginDeals,
+} from "../app/origin-baseline.ts";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -43,4 +47,27 @@ test("keeps the starter preview removed and safety rules in the app", async () =
   assert.match(page, /lastupdated/);
   assert.match(page, /origin-baseline/);
   assert.match(page, /completeRunAndSaveBaseline/);
+  assert.match(page, /id: \["companyid",/);
+});
+
+test("filters by cutoff date while retaining newly updated prior companies", () => {
+  const priorDeals = [
+    { id: "13480", target: "Alphatron", sourceDate: "17-07-2026" },
+    { id: "1225536", target: "Benchmark Capital", sourceDate: "15-07-2026" },
+  ];
+  const baseline = {
+    newestSourceDate: "17-07-2026",
+    dealSnapshots: buildDealSnapshots(priorDeals),
+  };
+  const week30Deals = [
+    { id: "13480", target: "Alphatron", sourceDate: "21-07-2026" },
+    { id: "1225536", target: "Benchmark Capital", sourceDate: "15-07-2026" },
+    { id: "999", target: "Unseen cutoff deal", sourceDate: "17-07-2026" },
+    { id: "1000", target: "Newer deal", sourceDate: "18-07-2026" },
+  ];
+
+  assert.deepEqual(
+    filterOriginDeals(week30Deals, baseline).map((deal) => deal.target),
+    ["Alphatron", "Newer deal"],
+  );
 });

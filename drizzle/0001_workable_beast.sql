@@ -1,0 +1,1 @@
+ALTER TABLE `origin_baseline` ADD `deal_snapshots_json` text DEFAULT '[]' NOT NULL;

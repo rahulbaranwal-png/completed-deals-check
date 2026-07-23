@@ -9,5 +9,6 @@ export const originBaseline = sqliteTable("origin_baseline", {
   newestTarget: text("newest_target").notNull(),
   newestSourceDate: text("newest_source_date").notNull(),
   dealKeysJson: text("deal_keys_json").notNull(),
+  dealSnapshotsJson: text("deal_snapshots_json").notNull().default("[]"),
   totalChecked: integer("total_checked").notNull(),
 });
