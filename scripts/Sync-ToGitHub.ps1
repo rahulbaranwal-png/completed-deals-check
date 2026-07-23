@@ -44,13 +44,28 @@ $SshExe = if (Test-Path -LiteralPath $BundledSsh) {
 
 $GitBaseArguments = @("--git-dir=$GitDirectory", "--work-tree=$ProjectRoot")
 $PreviousSshCommand = $env:GIT_SSH_COMMAND
-$SshExeForCommand = $SshExe.Replace("\", "/")
-$PrivateKeyForCommand = $PrivateKey.Replace("\", "/")
-$KnownHostsForCommand = $KnownHosts.Replace("\", "/")
 if (-not (Test-Path -LiteralPath $KnownHosts)) {
   New-Item -ItemType File -Path $KnownHosts | Out-Null
 }
-$env:GIT_SSH_COMMAND = ('"{0}" -i "{1}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile={2}"' -f $SshExeForCommand, $PrivateKeyForCommand, $KnownHostsForCommand)
+
+if (-not ("CompletedDealsCheck.NativePath" -as [type])) {
+  Add-Type -Namespace CompletedDealsCheck -Name NativePath -MemberDefinition @"
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+    public static extern int GetShortPathName(string longPath, System.Text.StringBuilder shortPath, int shortPathLength);
+"@
+}
+
+function Convert-ToSshPath([string]$Path) {
+  $Buffer = New-Object System.Text.StringBuilder 1024
+  $Length = [CompletedDealsCheck.NativePath]::GetShortPathName($Path, $Buffer, $Buffer.Capacity)
+  $ResolvedPath = if ($Length -gt 0) { $Buffer.ToString() } else { $Path }
+  return $ResolvedPath.Replace("\", "/")
+}
+
+$SshExeForCommand = Convert-ToSshPath $SshExe
+$PrivateKeyForCommand = Convert-ToSshPath $PrivateKey
+$KnownHostsForCommand = Convert-ToSshPath $KnownHosts
+$env:GIT_SSH_COMMAND = ('{0} -i {1} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={2}' -f $SshExeForCommand, $PrivateKeyForCommand, $KnownHostsForCommand)
 
 try {
   & $GitExe @GitBaseArguments config user.name "Rahul Baranwal"
