@@ -1,6 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  buildDealSnapshots,
+  dealFingerprint,
+  filterOriginDeals,
+  mergeDealSnapshots,
+  newestOriginDeal,
+  type BaselineDealSnapshot,
+} from "./origin-baseline";
 
 type RawRow = Record<string, string>;
 
@@ -51,13 +59,14 @@ type ReviewDeal = {
 };
 
 type OriginBaseline = {
-  version: 1;
+  version: 2;
   savedAt: string;
   sourceFileName: string;
   newestDealKey: string;
   newestTarget: string;
   newestSourceDate: string;
   dealKeys: string[];
+  dealSnapshots: BaselineDealSnapshot[];
   totalChecked: number;
 };
 
@@ -72,7 +81,7 @@ const FIELD_DEFINITIONS: Array<{ key: FieldKey; label: string }> = [
 ];
 
 const ALIASES: Record<keyof CanonicalDeal, string[]> = {
-  id: ["deal_id", "id", "dealid", "companyid", "origin_deal_id", "gain_deal_id"],
+  id: ["companyid", "deal_id", "id", "dealid", "origin_deal_id", "gain_deal_id"],
   target: ["target", "target_name", "company", "asset", "target_company"],
   buyer: ["buyer", "acquirer", "investor", "buyer_name", "announcedbuyer"],
   seller: ["seller", "vendor", "seller_name"],
@@ -241,13 +250,6 @@ function normaliseName(value: string) {
   return normaliseValue(
     value.replace(/\b(group|holdings|limited|ltd|incorporated|inc|plc|llc)\b/gi, ""),
   );
-}
-
-function dealKey(deal: CanonicalDeal) {
-  const id = deal.id && !deal.id.startsWith("ROW-") ? normaliseValue(deal.id) : "";
-  const target = normaliseName(deal.target);
-  const buyer = normaliseName(deal.buyer);
-  return id ? `id:${id}|target:${target}|buyer:${buyer}` : `target:${target}|buyer:${buyer}`;
 }
 
 function pick(row: RawRow, aliases: string[]) {
@@ -481,13 +483,9 @@ export default function Home() {
     };
   }, []);
 
-  const baselineKeys = useMemo(() => new Set(baseline?.dealKeys ?? []), [baseline]);
   const originDealsForRun = useMemo(
-    () =>
-      isOriginUpload
-        ? originDeals.filter((deal) => !baselineKeys.has(dealKey(deal)))
-        : originDeals,
-    [baselineKeys, isOriginUpload, originDeals],
+    () => (isOriginUpload ? filterOriginDeals(originDeals, baseline) : originDeals),
+    [baseline, isOriginUpload, originDeals],
   );
   const skippedOriginDeals = isOriginUpload ? originDeals.length - originDealsForRun.length : 0;
   const selected = reviews.find((deal) => deal.reviewId === selectedId) ?? reviews[0];
@@ -534,11 +532,10 @@ export default function Home() {
         setSelectedId("");
         setApproved(new Set());
 
-        const knownKeys = new Set(baseline?.dealKeys ?? []);
-        const newCount = deals.filter((deal) => !knownKeys.has(dealKey(deal))).length;
+        const newCount = filterOriginDeals(deals, baseline).length;
         setNotice(
           baseline
-            ? `${file.name} loaded: ${newCount} new deals; ${deals.length - newCount} previously checked deals skipped.`
+            ? `${file.name} loaded: ${newCount} deals dated after ${baseline.newestSourceDate}; ${deals.length - newCount} cutoff/unchanged deals skipped.`
             : `${file.name} loaded for the first run. All ${deals.length} deals are new.`,
         );
       } else {
@@ -594,19 +591,24 @@ export default function Home() {
     }
 
     try {
-      const newestDeal = originDeals[0];
-      const mergedKeys = Array.from(
-        new Set([...(baseline?.dealKeys ?? []), ...originDeals.map(dealKey)]),
+      const newestDeal = newestOriginDeal(originDeals);
+      const mergedSnapshots = mergeDealSnapshots(
+        baseline?.dealSnapshots ?? [],
+        buildDealSnapshots(originDeals),
+      );
+      const mergedKeys = mergedSnapshots.map(
+        (snapshot) => `${snapshot.identity}|updated:${snapshot.sourceDate.trim()}`,
       );
       const nextBaseline: OriginBaseline = {
-        version: 1,
+        version: 2,
         savedAt: new Date().toISOString(),
         sourceFileName: originFileName,
-        newestDealKey: newestDeal ? dealKey(newestDeal) : baseline?.newestDealKey ?? "",
+        newestDealKey: newestDeal ? dealFingerprint(newestDeal) : baseline?.newestDealKey ?? "",
         newestTarget: newestDeal?.target || baseline?.newestTarget || "No target supplied",
         newestSourceDate: newestDeal?.sourceDate || baseline?.newestSourceDate || "Not supplied",
         dealKeys: mergedKeys,
-        totalChecked: mergedKeys.length,
+        dealSnapshots: mergedSnapshots,
+        totalChecked: mergedSnapshots.length,
       };
 
       const response = await fetch("/api/origin-baseline", {
