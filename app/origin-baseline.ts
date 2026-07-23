@@ -81,9 +81,12 @@ export function shouldReviewOriginDeal(
     (snapshot) => snapshot.identity === dealIdentity(deal),
   );
 
-  if (previous && previous.sourceDate.trim() === deal.sourceDate.trim()) return false;
+  if (previous) {
+    return previous.sourceDate.trim() !== deal.sourceDate.trim();
+  }
+
   if (Number.isFinite(currentDate) && Number.isFinite(cutoffDate)) {
-    return currentDate > cutoffDate;
+    return currentDate >= cutoffDate;
   }
 
   return true;

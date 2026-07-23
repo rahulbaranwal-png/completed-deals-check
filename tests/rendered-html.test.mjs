@@ -50,7 +50,7 @@ test("keeps the starter preview removed and safety rules in the app", async () =
   assert.match(page, /id: \["companyid",/);
 });
 
-test("filters by cutoff date while retaining newly updated prior companies", () => {
+test("retains updated companies and unseen deals on the cutoff date", () => {
   const priorDeals = [
     { id: "13480", target: "Alphatron", sourceDate: "17-07-2026" },
     { id: "1225536", target: "Benchmark Capital", sourceDate: "15-07-2026" },
@@ -68,6 +68,6 @@ test("filters by cutoff date while retaining newly updated prior companies", () 
 
   assert.deepEqual(
     filterOriginDeals(week30Deals, baseline).map((deal) => deal.target),
-    ["Alphatron", "Newer deal"],
+    ["Alphatron", "Unseen cutoff deal", "Newer deal"],
   );
 });

@@ -535,7 +535,7 @@ export default function Home() {
         const newCount = filterOriginDeals(deals, baseline).length;
         setNotice(
           baseline
-            ? `${file.name} loaded: ${newCount} deals dated after ${baseline.newestSourceDate}; ${deals.length - newCount} cutoff/unchanged deals skipped.`
+            ? `${file.name} loaded: ${newCount} new or updated deals since ${baseline.newestSourceDate}; ${deals.length - newCount} unchanged/older deals skipped.`
             : `${file.name} loaded for the first run. All ${deals.length} deals are new.`,
         );
       } else {
