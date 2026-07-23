@@ -14,13 +14,13 @@ async function render() {
   );
 }
 
-test("server-renders the Origin to Gain reconciliation app", async () => {
+test("server-renders Completed deals check", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Align — Origin to Gain reconciliation<\/title>/i);
+  assert.match(html, /<title>Completed deals check<\/title>/i);
   assert.match(html, /Completed deal enrichment/i);
   assert.match(html, /Origin remains read-only/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);

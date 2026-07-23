@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Align — Origin to Gain reconciliation",
+  title: "Completed deals check",
   description: "Review missing completed-deal intelligence before it is added to Gain.",
 };
 

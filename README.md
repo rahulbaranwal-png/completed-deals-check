@@ -1,6 +1,6 @@
-# Align: Origin to Gain reconciliation
+# Completed deals check
 
-Align is a local, read-only comparison app for completed M&A deals. It compares an Origin CSV export with a Gain CSV export, identifies fields that are missing or different on Gain, and creates a reviewer-approved CSV patch.
+Completed deals check is a local, read-only comparison app for completed M&A deals. It compares an Origin CSV export with a Gain CSV export, identifies fields that are missing or different on Gain, and creates a reviewer-approved CSV patch.
 
 The current MVP never writes to Origin or Gain.
 
@@ -33,6 +33,12 @@ The app recognises common variations of these fields:
 ## Start on the local network
 
 Prerequisite: Node.js 22.13 or later.
+
+For the simplest start, double-click `Start Completed deals check.cmd`. It starts the local-network app and a private GitHub auto-save process. Keep that window open while using the app.
+
+The auto-save process checks once per minute. It commits only source files allowed by `.gitignore`, then pushes them to the private `rahulbaranwal-png/completed-deals-check` repository. Deal exports, spreadsheets, databases, logs, credentials, and environment files remain excluded.
+
+To start the app without automatic GitHub saving, use:
 
 ```powershell
 npm install

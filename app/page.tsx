@@ -548,7 +548,7 @@ export default function Home() {
           <span className="brand-mark" aria-hidden="true">A</span>
           <div>
             <strong>Align</strong>
-            <span>Origin → Gain reconciliation</span>
+            <span>Completed deals check</span>
           </div>
         </div>
         <div className="topbar-actions">
