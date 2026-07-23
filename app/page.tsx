@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type RawRow = Record<string, string>;
 
@@ -50,6 +50,17 @@ type ReviewDeal = {
   diffs: FieldDiff[];
 };
 
+type OriginBaseline = {
+  version: 1;
+  savedAt: string;
+  sourceFileName: string;
+  newestDealKey: string;
+  newestTarget: string;
+  newestSourceDate: string;
+  dealKeys: string[];
+  totalChecked: number;
+};
+
 const FIELD_DEFINITIONS: Array<{ key: FieldKey; label: string }> = [
   { key: "enterpriseValue", label: "Enterprise value" },
   { key: "revenue", label: "Revenue" },
@@ -61,18 +72,25 @@ const FIELD_DEFINITIONS: Array<{ key: FieldKey; label: string }> = [
 ];
 
 const ALIASES: Record<keyof CanonicalDeal, string[]> = {
-  id: ["deal_id", "id", "dealid", "origin_deal_id", "gain_deal_id"],
+  id: ["deal_id", "id", "dealid", "companyid", "origin_deal_id", "gain_deal_id"],
   target: ["target", "target_name", "company", "asset", "target_company"],
-  buyer: ["buyer", "acquirer", "investor", "buyer_name"],
+  buyer: ["buyer", "acquirer", "investor", "buyer_name", "announcedbuyer"],
   seller: ["seller", "vendor", "seller_name"],
   completionDate: ["completion_date", "completed_date", "close_date", "closed_date"],
   enterpriseValue: ["enterprise_value", "deal_value", "ev", "transaction_value"],
-  revenue: ["revenue", "sales", "target_revenue"],
-  ebitda: ["ebitda", "target_ebitda"],
+  revenue: ["revenue", "sales", "target_revenue", "marketedrevenue"],
+  ebitda: ["ebitda", "target_ebitda", "marketedebitda"],
   stake: ["stake", "stake_acquired", "percentage_acquired", "ownership"],
-  advisers: ["advisers", "advisors", "financial_advisers", "financial_advisors"],
+  advisers: [
+    "advisers",
+    "advisors",
+    "financial_advisers",
+    "financial_advisors",
+    "sellsideadvisors",
+    "buysideadvisors",
+  ],
   sourceType: ["source_type", "source", "intelligence_type", "provenance"],
-  sourceDate: ["source_date", "intelligence_date", "updated_at", "last_updated"],
+  sourceDate: ["source_date", "intelligence_date", "updated_at", "last_updated", "lastupdated"],
 };
 
 const DEMO_ORIGIN: CanonicalDeal[] = [
@@ -225,6 +243,13 @@ function normaliseName(value: string) {
   );
 }
 
+function dealKey(deal: CanonicalDeal) {
+  const id = deal.id && !deal.id.startsWith("ROW-") ? normaliseValue(deal.id) : "";
+  const target = normaliseName(deal.target);
+  const buyer = normaliseName(deal.buyer);
+  return id ? `id:${id}|target:${target}|buyer:${buyer}` : `target:${target}|buyer:${buyer}`;
+}
+
 function pick(row: RawRow, aliases: string[]) {
   for (const alias of aliases) {
     const value = row[alias];
@@ -233,11 +258,19 @@ function pick(row: RawRow, aliases: string[]) {
   return "";
 }
 
+function pickMany(row: RawRow, aliases: string[]) {
+  return Array.from(
+    new Set(aliases.map((alias) => row[alias]?.trim()).filter((value): value is string => Boolean(value))),
+  ).join("; ");
+}
+
 function canonicalise(rows: RawRow[]): CanonicalDeal[] {
   return rows.map((row, index) => {
     const cleaned = Object.fromEntries(
       Object.entries(row).map(([key, value]) => [normaliseHeader(key), value]),
     );
+    const originator = pick(cleaned, ["originator"]);
+    const suppliedSourceType = pick(cleaned, ALIASES.sourceType);
 
     return {
       id: pick(cleaned, ALIASES.id) || `ROW-${index + 1}`,
@@ -249,8 +282,14 @@ function canonicalise(rows: RawRow[]): CanonicalDeal[] {
       revenue: pick(cleaned, ALIASES.revenue),
       ebitda: pick(cleaned, ALIASES.ebitda),
       stake: pick(cleaned, ALIASES.stake),
-      advisers: pick(cleaned, ALIASES.advisers),
-      sourceType: pick(cleaned, ALIASES.sourceType) || "Not supplied",
+      advisers: pickMany(cleaned, ALIASES.advisers),
+      sourceType:
+        suppliedSourceType ||
+        (normaliseValue(originator) === "aggregation"
+          ? "Aggregation"
+          : originator
+            ? "Prop intelligence"
+            : "Not supplied"),
       sourceDate: pick(cleaned, ALIASES.sourceDate) || "Not supplied",
     };
   });
@@ -545,14 +584,8 @@ export default function Home() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand-lockup">
-          <div className="brand-logos" aria-label="Origin to Gain">
-            <img className="brand-logo brand-logo-origin" src="/origin-logo.png" alt="Origin" />
-            <span className="logo-arrow" aria-hidden="true">→</span>
-            <img className="brand-logo brand-logo-gain" src="/gain-logo.png" alt="Gain" />
-          </div>
           <div className="brand-copy">
             <strong>Completed deals check</strong>
-            <span>Internal data review</span>
           </div>
         </div>
         <div className="topbar-actions">
