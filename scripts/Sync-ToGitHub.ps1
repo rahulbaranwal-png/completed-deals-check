@@ -44,6 +44,7 @@ $SshExe = if (Test-Path -LiteralPath $BundledSsh) {
 
 $GitBaseArguments = @("--git-dir=$GitDirectory", "--work-tree=$ProjectRoot")
 $PreviousSshCommand = $env:GIT_SSH_COMMAND
+$PreviousSshVariant = $env:GIT_SSH_VARIANT
 if (-not (Test-Path -LiteralPath $KnownHosts)) {
   New-Item -ItemType File -Path $KnownHosts | Out-Null
 }
@@ -66,6 +67,7 @@ $SshExeForCommand = Convert-ToSshPath $SshExe
 $PrivateKeyForCommand = Convert-ToSshPath $PrivateKey
 $KnownHostsForCommand = Convert-ToSshPath $KnownHosts
 $env:GIT_SSH_COMMAND = ('{0} -i {1} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={2}' -f $SshExeForCommand, $PrivateKeyForCommand, $KnownHostsForCommand)
+$env:GIT_SSH_VARIANT = "ssh"
 
 try {
   & $GitExe @GitBaseArguments config user.name "Rahul Baranwal"
@@ -106,4 +108,5 @@ try {
   Write-Host "GitHub is up to date."
 } finally {
   $env:GIT_SSH_COMMAND = $PreviousSshCommand
+  $env:GIT_SSH_VARIANT = $PreviousSshVariant
 }
