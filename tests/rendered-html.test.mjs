@@ -25,6 +25,8 @@ test("server-renders Completed deals check", async () => {
   assert.match(html, /\/gain-logo\.png/i);
   assert.match(html, /Compare Origin and Gain exports/i);
   assert.match(html, /Completed deals/i);
+  assert.match(html, /Rolling Origin baseline/i);
+  assert.match(html, /Complete run &amp; save baseline/i);
   assert.match(html, /Origin remains read-only/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });
@@ -37,4 +39,8 @@ test("keeps the starter preview removed and safety rules in the app", async () =
   assert.match(page, /Conflicts stay in review/);
   assert.match(page, /No safe Gain match found/);
   assert.match(page, /sourceType/);
+  assert.match(page, /companyid/);
+  assert.match(page, /lastupdated/);
+  assert.match(page, /origin-baseline/);
+  assert.match(page, /completeRunAndSaveBaseline/);
 });

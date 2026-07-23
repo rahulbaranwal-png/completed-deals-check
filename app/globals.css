@@ -401,6 +401,8 @@ body { background-image: none; }
 .button-quiet { background: #f4f4f5; color: #52525b; }
 .button-accent { background: var(--purple); color: white; box-shadow: none; }
 .button-accent:hover { background: #4720db; }
+.button:disabled { cursor: not-allowed; opacity: 0.45; }
+.button:disabled:hover { transform: none; }
 
 .dashboard-intro {
   max-width: 1320px;
@@ -416,6 +418,27 @@ body { background-image: none; }
 .rule-note { min-width: 310px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: white; display: grid; gap: 3px; }
 .rule-note strong { font-size: 12px; }
 .rule-note span { color: var(--muted); font-size: 10px; line-height: 1.4; }
+
+.baseline-strip {
+  max-width: 1320px;
+  margin: 0 auto 16px;
+  padding: 14px clamp(16px, 3vw, 32px);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: rgba(255,255,255,0.72);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.baseline-copy { display: grid; gap: 3px; }
+.baseline-copy .eyebrow { margin-bottom: 2px; }
+.baseline-copy > strong { font-size: 13px; }
+.baseline-copy > span { color: var(--muted); font-size: 10px; line-height: 1.45; }
+.baseline-actions { display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
+.baseline-actions > span { display: grid; text-align: right; gap: 2px; white-space: nowrap; }
+.baseline-actions > span strong { font-size: 12px; color: var(--purple); }
+.baseline-actions > span small { color: var(--muted); font-size: 9px; }
 
 .upload-grid {
   max-width: 1320px;
@@ -464,6 +487,9 @@ footer { max-width: 1320px; padding: 0 clamp(16px, 3vw, 32px) 24px; }
 @media (max-width: 760px) {
   .dashboard-intro { align-items: stretch; flex-direction: column; }
   .rule-note { min-width: 0; }
+  .baseline-strip { align-items: stretch; flex-direction: column; }
+  .baseline-actions { align-items: stretch; flex-direction: column; }
+  .baseline-actions > span { text-align: left; }
   .brand-copy { display: grid; }
   .upload-grid { grid-template-columns: 1fr; }
 }

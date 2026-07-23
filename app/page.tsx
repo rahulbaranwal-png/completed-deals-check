@@ -446,12 +446,50 @@ export default function Home() {
   const [reviews, setReviews] = useState(() => createReviewQueue(DEMO_ORIGIN, DEMO_GAIN));
   const [originFileName, setOriginFileName] = useState("Demo Origin export.csv");
   const [gainFileName, setGainFileName] = useState("Demo Gain export.csv");
+  const [baseline, setBaseline] = useState<OriginBaseline | null>(null);
+  const [baselineLoading, setBaselineLoading] = useState(true);
+  const [baselineError, setBaselineError] = useState("");
+  const [isOriginUpload, setIsOriginUpload] = useState(false);
+  const [comparedOriginFileName, setComparedOriginFileName] = useState("");
   const [selectedId, setSelectedId] = useState(() => reviews[0]?.reviewId ?? "");
   const [filter, setFilter] = useState<"all" | ReviewDeal["status"]>("all");
   const [search, setSearch] = useState("");
   const [approved, setApproved] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState("Demo comparison loaded — no data will be written to Gain.");
 
+  useEffect(() => {
+    let active = true;
+
+    async function loadBaseline() {
+      try {
+        const response = await fetch("/api/origin-baseline", { cache: "no-store" });
+        if (!response.ok) throw new Error("The rolling baseline could not be loaded.");
+        const payload = (await response.json()) as { baseline: OriginBaseline | null };
+        if (active) setBaseline(payload.baseline);
+      } catch (error) {
+        if (active) {
+          setBaselineError(error instanceof Error ? error.message : "The rolling baseline could not be loaded.");
+        }
+      } finally {
+        if (active) setBaselineLoading(false);
+      }
+    }
+
+    loadBaseline();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const baselineKeys = useMemo(() => new Set(baseline?.dealKeys ?? []), [baseline]);
+  const originDealsForRun = useMemo(
+    () =>
+      isOriginUpload
+        ? originDeals.filter((deal) => !baselineKeys.has(dealKey(deal)))
+        : originDeals,
+    [baselineKeys, isOriginUpload, originDeals],
+  );
+  const skippedOriginDeals = isOriginUpload ? originDeals.length - originDealsForRun.length : 0;
   const selected = reviews.find((deal) => deal.reviewId === selectedId) ?? reviews[0];
 
   const metrics = useMemo(() => {
@@ -464,13 +502,13 @@ export default function Home() {
       0,
     );
     return {
-      scanned: originDeals.length,
+      scanned: originDealsForRun.length,
       matched: reviews.filter((deal) => deal.status !== "unmatched").length,
       missing,
       conflicts,
       unmatched: reviews.filter((deal) => deal.status === "unmatched").length,
     };
-  }, [originDeals.length, reviews]);
+  }, [originDealsForRun.length, reviews]);
 
   const filteredReviews = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -490,23 +528,49 @@ export default function Home() {
       if (source === "origin") {
         setOriginDeals(deals);
         setOriginFileName(file.name);
+        setIsOriginUpload(true);
+        setComparedOriginFileName("");
+        setReviews([]);
+        setSelectedId("");
+        setApproved(new Set());
+
+        const knownKeys = new Set(baseline?.dealKeys ?? []);
+        const newCount = deals.filter((deal) => !knownKeys.has(dealKey(deal))).length;
+        setNotice(
+          baseline
+            ? `${file.name} loaded: ${newCount} new deals; ${deals.length - newCount} previously checked deals skipped.`
+            : `${file.name} loaded for the first run. All ${deals.length} deals are new.`,
+        );
       } else {
         setGainDeals(deals);
         setGainFileName(file.name);
+        setNotice(`${file.name} loaded. Select Compare files when both exports are ready.`);
       }
-      setNotice(`${file.name} loaded. Select Compare files when both exports are ready.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "The file could not be read.");
     }
   }
 
   function runComparison() {
-    const nextReviews = createReviewQueue(originDeals, gainDeals);
+    if (baselineLoading) {
+      setNotice("Wait a moment while the rolling Origin baseline loads.");
+      return;
+    }
+    if (baselineError) {
+      setNotice("The rolling baseline is unavailable, so comparison is paused to avoid rechecking old deals.");
+      return;
+    }
+
+    const dealsToCompare = isOriginUpload ? originDealsForRun : originDeals;
+    const nextReviews = createReviewQueue(dealsToCompare, gainDeals);
     setReviews(nextReviews);
     setSelectedId(nextReviews[0]?.reviewId ?? "");
     setApproved(new Set());
     setFilter("all");
-    setNotice(`Comparison complete: ${originDeals.length} Origin deals checked against ${gainDeals.length} Gain deals.`);
+    if (isOriginUpload) setComparedOriginFileName(originFileName);
+    setNotice(
+      `Comparison complete: ${dealsToCompare.length} new Origin deals checked against ${gainDeals.length} Gain deals; ${skippedOriginDeals} previously checked deals skipped.`,
+    );
   }
 
   function restoreDemo() {
@@ -517,8 +581,49 @@ export default function Home() {
     setSelectedId(nextReviews[0]?.reviewId ?? "");
     setOriginFileName("Demo Origin export.csv");
     setGainFileName("Demo Gain export.csv");
+    setIsOriginUpload(false);
+    setComparedOriginFileName("");
     setApproved(new Set());
     setNotice("Demo comparison restored — no data will be written to Gain.");
+  }
+
+  async function completeRunAndSaveBaseline() {
+    if (!isOriginUpload || comparedOriginFileName !== originFileName) {
+      setNotice("Compare the current Origin export before completing this run.");
+      return;
+    }
+
+    try {
+      const newestDeal = originDeals[0];
+      const mergedKeys = Array.from(
+        new Set([...(baseline?.dealKeys ?? []), ...originDeals.map(dealKey)]),
+      );
+      const nextBaseline: OriginBaseline = {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        sourceFileName: originFileName,
+        newestDealKey: newestDeal ? dealKey(newestDeal) : baseline?.newestDealKey ?? "",
+        newestTarget: newestDeal?.target || baseline?.newestTarget || "No target supplied",
+        newestSourceDate: newestDeal?.sourceDate || baseline?.newestSourceDate || "Not supplied",
+        dealKeys: mergedKeys,
+        totalChecked: mergedKeys.length,
+      };
+
+      const response = await fetch("/api/origin-baseline", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(nextBaseline),
+      });
+      if (!response.ok) throw new Error("The completed-run baseline could not be saved.");
+
+      const payload = (await response.json()) as { baseline: OriginBaseline };
+      setBaseline(payload.baseline);
+      setNotice(
+        `Run completed. The rolling baseline now includes ${payload.baseline.totalChecked} deals through ${payload.baseline.newestTarget} (${payload.baseline.newestSourceDate}).`,
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "The completed-run baseline could not be saved.");
+    }
   }
 
   function toggleApproval(deal: ReviewDeal, diff: FieldDiff) {
@@ -602,12 +707,53 @@ export default function Home() {
           <p className="eyebrow">Completed deals</p>
           <h1>Compare Origin and Gain exports</h1>
           <p className="intro-copy">
-            Upload both files, review missing fields, then export approved Gain updates.
+            Upload the latest Origin export and the current Gain export. Previously completed Origin deals are skipped automatically.
           </p>
         </div>
         <div className="rule-note">
           <strong>Add to blanks only</strong>
           <span>Existing Gain values are never overwritten. Conflicts stay in review.</span>
+        </div>
+      </section>
+
+      <section className="baseline-strip" aria-label="Rolling Origin baseline">
+        <div className="baseline-copy">
+          <p className="eyebrow">Rolling Origin baseline</p>
+          <strong>
+            {baselineLoading
+              ? "Loading the last completed run…"
+              : baselineError
+                ? "Baseline unavailable"
+                : baseline
+                  ? `Last completed cutoff: ${baseline.newestTarget} · ${baseline.newestSourceDate}`
+                  : "First run — every Origin deal will be checked"}
+          </strong>
+          <span>
+            {baseline
+              ? `${baseline.totalChecked} deal keys saved locally. Same-date additions are still detected.`
+              : "After review, complete the run once to make this export the baseline for next time."}
+          </span>
+        </div>
+        <div className="baseline-actions">
+          {isOriginUpload && (
+            <span>
+              <strong>{originDealsForRun.length} new</strong>
+              <small>{skippedOriginDeals} previously checked skipped</small>
+            </span>
+          )}
+          <button
+            className="button button-dark"
+            type="button"
+            onClick={completeRunAndSaveBaseline}
+            disabled={
+              baselineLoading ||
+              Boolean(baselineError) ||
+              !isOriginUpload ||
+              comparedOriginFileName !== originFileName
+            }
+          >
+            Complete run &amp; save baseline
+          </button>
         </div>
       </section>
 
@@ -621,7 +767,11 @@ export default function Home() {
           <img className="source-logo source-logo-origin" src="/origin-logo.png" alt="Origin" />
           <span className="upload-source">Origin export</span>
           <strong>{originFileName}</strong>
-          <span>{originDeals.length} completed deals ready</span>
+          <span>
+            {isOriginUpload
+              ? `${originDealsForRun.length} new of ${originDeals.length} total deals`
+              : `${originDeals.length} completed deals ready`}
+          </span>
           <small>Choose CSV</small>
         </label>
 
@@ -646,7 +796,7 @@ export default function Home() {
       </section>
 
       <section className="metric-grid" aria-label="Comparison summary">
-        <article><span>Origin deals</span><strong>{metrics.scanned}</strong><small>Scanned this run</small></article>
+        <article><span>New Origin deals</span><strong>{metrics.scanned}</strong><small>Scanned this run</small></article>
         <article><span>Safe matches</span><strong>{metrics.matched}</strong><small>Linked to Gain</small></article>
         <article className="metric-mint"><span>Missing fields</span><strong>{metrics.missing}</strong><small>Eligible to add</small></article>
         <article className="metric-amber"><span>Conflicts</span><strong>{metrics.conflicts}</strong><small>Need a decision</small></article>
@@ -780,6 +930,7 @@ export default function Home() {
 
       <footer>
         <span>Local MVP · CSV files are processed in this browser session</span>
+        <span>Rolling deal keys are saved locally and excluded from GitHub</span>
         <span>Origin remains read-only · Gain changes require export and approval</span>
       </footer>
     </main>
