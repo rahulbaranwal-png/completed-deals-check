@@ -34,7 +34,15 @@ The app recognises common variations of these fields:
 
 Prerequisite: Node.js 22.13 or later.
 
-For the simplest start, double-click `Start Completed deals check.cmd`. It starts the local-network app and a private GitHub auto-save process. Keep that window open while using the app.
+The app is installed as a Windows login task, so it starts automatically and restarts if the local server stops. Its stable link on this computer is:
+
+```text
+http://LAPTOP-DAPSSNUC:3000/
+```
+
+The computer-name link stays the same when Wi-Fi assigns a different IP address.
+
+For a manual start, double-click `Start Completed deals check.cmd`. It starts the local-network app and a private GitHub auto-save process. Keep that window open while using the app.
 
 The auto-save process checks once per minute. It commits only source files allowed by `.gitignore`, then pushes them to the private `rahulbaranwal-png/completed-deals-check` repository. Deal exports, spreadsheets, databases, logs, credentials, and environment files remain excluded.
 
@@ -45,13 +53,7 @@ npm install
 npm run dev
 ```
 
-The development server is configured to listen on `0.0.0.0`, making it available through the host computer's local-network IP address. On the current computer and network, the confirmed URL is:
-
-```text
-http://10.190.91.0:3000/
-```
-
-The IP address can change when the computer reconnects to Wi-Fi. Run `ipconfig` and use the Wi-Fi IPv4 address with port `3000`.
+The development server is configured to listen on `0.0.0.0` and to stay on port `3000`. The current Wi-Fi IP address is also usable from another device on the same trusted network, but that IP can change after reconnecting. Prefer the computer-name link on this computer.
 
 Windows Firewall may ask whether to allow Node.js on private networks. Allow private networks only if colleagues on the same trusted network need to access the app.
 

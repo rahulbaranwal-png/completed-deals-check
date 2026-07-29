@@ -9,9 +9,34 @@ $WorkDirectory = Join-Path $ProjectRoot "work"
 $SyncScript = Join-Path $ProjectRoot "scripts\Sync-ToGitHub.ps1"
 $SyncOutputLog = Join-Path $WorkDirectory "github-auto-sync.log"
 $SyncErrorLog = Join-Path $WorkDirectory "github-auto-sync.error.log"
+$AppPort = 3000
+$ComputerName = [System.Net.Dns]::GetHostName()
+$StableUrl = "http://$($ComputerName):$AppPort/"
+$LoopbackUrl = "http://127.0.0.1:$AppPort/"
 
 if (-not (Test-Path -LiteralPath $WorkDirectory)) {
   New-Item -ItemType Directory -Path $WorkDirectory | Out-Null
+}
+
+function Test-CompletedDealsCheckEndpoint {
+  try {
+    $Response = Invoke-WebRequest -Uri $LoopbackUrl -UseBasicParsing -TimeoutSec 3
+    return $Response.StatusCode -eq 200 -and $Response.Content -match "Completed deals check"
+  } catch {
+    return $false
+  }
+}
+
+if (Test-CompletedDealsCheckEndpoint) {
+  Write-Host "Completed deals check is already running at $StableUrl"
+  exit 0
+}
+
+$ExistingListener = Get-NetTCPConnection -LocalPort $AppPort -State Listen -ErrorAction SilentlyContinue |
+  Select-Object -First 1
+
+if ($ExistingListener) {
+  throw "Port $AppPort is already being used by another program. The app will retry automatically when the port is free."
 }
 
 $AutoSyncJob = Start-Job -ScriptBlock {
@@ -49,8 +74,9 @@ $NetworkAddresses = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyCo
 
 Write-Host ""
 Write-Host "Completed deals check is starting."
+Write-Host "Stable link on this computer: $StableUrl"
 foreach ($Address in $NetworkAddresses) {
-  Write-Host "Open on your local network: http://$($Address):3000/"
+  Write-Host "Current network IP link: http://$($Address):$AppPort/"
 }
 Write-Host "Automatic private GitHub saving is running in the background."
 Write-Host "Keep this window open while using the app."
@@ -58,8 +84,8 @@ Write-Host ""
 
 try {
   Push-Location $ProjectRoot
-  & $NodeExe $VinextCli dev --hostname 0.0.0.0
-  if ($LASTEXITCODE -ne 0) { throw "The local server stopped with an error." }
+  & $NodeExe $VinextCli dev --hostname 0.0.0.0 --port $AppPort --strictPort
+  throw "The local server stopped unexpectedly and will be restarted automatically."
 } finally {
   Pop-Location
   Stop-Job -Job $AutoSyncJob -ErrorAction SilentlyContinue
