@@ -10,9 +10,8 @@ $SyncScript = Join-Path $ProjectRoot "scripts\Sync-ToGitHub.ps1"
 $SyncOutputLog = Join-Path $WorkDirectory "github-auto-sync.log"
 $SyncErrorLog = Join-Path $WorkDirectory "github-auto-sync.error.log"
 $AppPort = 3000
-$ComputerName = [System.Net.Dns]::GetHostName()
-$StableUrl = "http://$($ComputerName):$AppPort/"
 $LoopbackUrl = "http://127.0.0.1:$AppPort/"
+$StableUrl = $LoopbackUrl
 
 if (-not (Test-Path -LiteralPath $WorkDirectory)) {
   New-Item -ItemType Directory -Path $WorkDirectory | Out-Null
@@ -74,7 +73,7 @@ $NetworkAddresses = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyCo
 
 Write-Host ""
 Write-Host "Completed deals check is starting."
-Write-Host "Stable link on this computer: $StableUrl"
+Write-Host "Always-available link on this computer: $StableUrl"
 foreach ($Address in $NetworkAddresses) {
   Write-Host "Current network IP link: http://$($Address):$AppPort/"
 }

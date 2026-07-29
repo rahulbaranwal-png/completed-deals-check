@@ -49,4 +49,4 @@ if ($StartNow) {
 }
 
 Write-Host "Automatic startup is installed for Completed deals check."
-Write-Host "Stable link: http://$([System.Net.Dns]::GetHostName()):3000/"
+Write-Host "Always-available link on this computer: http://127.0.0.1:3000/"

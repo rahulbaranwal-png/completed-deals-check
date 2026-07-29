@@ -34,13 +34,13 @@ The app recognises common variations of these fields:
 
 Prerequisite: Node.js 22.13 or later.
 
-The app is installed as a Windows login task, so it starts automatically and restarts if the local server stops. Its stable link on this computer is:
+The app is installed as a Windows login task, so it starts automatically and restarts if the local server stops. Its always-available link on this computer is:
 
 ```text
-http://LAPTOP-DAPSSNUC:3000/
+http://127.0.0.1:3000/
 ```
 
-The computer-name link stays the same when Wi-Fi assigns a different IP address.
+This link stays the same when Wi-Fi assigns a different local-network IP address. To use the app from another device on the same trusted network, use the current Wi-Fi IPv4 address with port `3000`.
 
 For a manual start, double-click `Start Completed deals check.cmd`. It starts the local-network app and a private GitHub auto-save process. Keep that window open while using the app.
 
@@ -53,7 +53,7 @@ npm install
 npm run dev
 ```
 
-The development server is configured to listen on `0.0.0.0` and to stay on port `3000`. The current Wi-Fi IP address is also usable from another device on the same trusted network, but that IP can change after reconnecting. Prefer the computer-name link on this computer.
+The development server is configured to listen on `0.0.0.0` and to stay on port `3000`. The current Wi-Fi IP address is also usable from another device on the same trusted network, but that IP can change after reconnecting. Prefer `http://127.0.0.1:3000/` on this computer.
 
 Windows Firewall may ask whether to allow Node.js on private networks. Allow private networks only if colleagues on the same trusted network need to access the app.
 
