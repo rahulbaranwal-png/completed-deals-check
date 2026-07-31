@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Compare Origin and Gain completed-deal exports safely in your browser."
+    />
+    <meta name="referrer" content="no-referrer" />
+    <title>Completed deals check</title>
+    <link rel="icon" href="./gain-logo.png" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand-copy">
+          <strong>Completed deals check</strong>
+          <span>Origin → Gain review</span>
+        </div>
+        <div class="topbar-actions">
+          <span class="mode-pill"><span class="pulse-dot"></span> Browser-only mode</span>
+          <button class="button button-quiet" id="restore-demo" type="button">
+            Restore demo
+          </button>
+          <button class="button button-dark" id="export-patch" type="button">
+            Export approved (0)
+          </button>
+        </div>
+      </header>
+
+      <section class="dashboard-intro">
+        <div>
+          <p class="eyebrow">Completed deals</p>
+          <h1>Compare Origin and Gain exports</h1>
+          <p class="intro-copy">
+            Upload the latest Origin export and the current Gain export.
+            Previously completed Origin deals are skipped automatically.
+          </p>
+        </div>
+        <div class="rule-note">
+          <strong>Add to blanks only</strong>
+          <span>Existing Gain values are never overwritten. Conflicts stay in review.</span>
+        </div>
+      </section>
+
+      <section class="privacy-banner" aria-label="Data privacy">
+        <strong>Your files stay in this browser.</strong>
+        <span>This static website does not upload Origin or Gain data to a server.</span>
+      </section>
+
+      <section class="baseline-strip" aria-label="Rolling Origin baseline">
+        <div class="baseline-copy">
+          <p class="eyebrow">Rolling Origin baseline</p>
+          <strong id="baseline-headline">Loading baseline…</strong>
+          <span id="baseline-description"></span>
+        </div>
+        <div class="baseline-actions">
+          <span id="baseline-run-summary" hidden></span>
+          <button class="button button-quiet" id="export-eligible" type="button">
+            Export deals to review
+          </button>
+          <button class="button button-quiet" id="export-baseline" type="button">
+            Backup baseline
+          </button>
+          <button class="button button-quiet" id="import-baseline" type="button">
+            Import baseline
+          </button>
+          <input id="baseline-file" type="file" accept=".json,application/json" hidden />
+          <button class="button button-dark" id="complete-run" type="button">
+            Complete run &amp; save baseline
+          </button>
+        </div>
+      </section>
+
+      <section class="upload-grid" aria-label="Deal export files">
+        <label class="upload-card" data-source="origin">
+          <input id="origin-file" type="file" accept=".csv,text/csv" />
+          <img class="source-logo source-logo-origin" src="./origin-logo.png" alt="Origin" />
+          <span class="upload-source">Origin export</span>
+          <strong id="origin-file-name">Demo Origin export.csv</strong>
+          <span id="origin-file-count">5 completed deals ready</span>
+          <small>Choose CSV</small>
+        </label>
+
+        <div class="compare-card">
+          <button class="button button-accent" id="compare" type="button">Compare files</button>
+          <p id="notice">Demo comparison loaded — no data will be written to Gain.</p>
+        </div>
+
+        <label class="upload-card" data-source="gain">
+          <input id="gain-file" type="file" accept=".csv,text/csv" />
+          <img class="source-logo source-logo-gain" src="./gain-logo.png" alt="Gain" />
+          <span class="upload-source">Gain export</span>
+          <strong id="gain-file-name">Demo Gain export.csv</strong>
+          <span id="gain-file-count">4 completed deals ready</span>
+          <small>Choose CSV</small>
+        </label>
+      </section>
+
+      <section class="metric-grid" id="metrics" aria-label="Comparison summary"></section>
+
+      <section class="workspace">
+        <aside class="queue-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Review queue</p>
+              <h2>Completed deals</h2>
+            </div>
+            <span class="count-badge" id="queue-count">0</span>
+          </div>
+
+          <label class="search-box">
+            <span>Search</span>
+            <input id="search" type="search" placeholder="Target, buyer or ID" />
+          </label>
+
+          <div class="filter-row" id="filter-row" aria-label="Queue filters"></div>
+          <div class="deal-list" id="deal-list"></div>
+        </aside>
+
+        <section class="detail-panel" id="detail-panel"></section>
+      </section>
+
+      <footer>
+        <span>Static website · Files are processed only in this browser</span>
+        <span>Baseline is stored per browser and can be backed up as JSON</span>
+        <span>Origin remains read-only · Gain changes require export and approval</span>
+      </footer>
+
+      <noscript>
+        <p class="noscript">JavaScript is required to compare the export files.</p>
+      </noscript>
+    </main>
+  </body>
+</html>

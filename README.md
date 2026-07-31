@@ -4,6 +4,30 @@ Completed deals check is a local, read-only comparison app for completed M&A dea
 
 The current MVP never writes to Origin or Gain.
 
+## Shareable static website
+
+The `docs` folder contains a plain HTML/CSS/JavaScript edition that can be
+published on GitHub Pages, Vercel, Netlify, or Cloudflare Pages. It has no
+server-side code and makes no API calls. Origin and Gain CSV files are parsed
+inside the visitor's browser and are not uploaded to the website host.
+
+The rolling Origin baseline is saved in the current browser. Use **Backup
+baseline** before switching browsers or devices, then use **Import baseline**
+on the other device. This keeps the static edition private-by-design while
+preserving the rolling comparison workflow.
+
+To publish with GitHub Pages:
+
+1. Open the repository's **Settings → Pages**.
+2. Under **Build and deployment**, choose **Deploy from a branch**.
+3. Select branch **main**, folder **/docs**, and save.
+4. Open `https://rahulbaranwal-png.github.io/completed-deals-check/` after the
+   Pages deployment finishes.
+
+If GitHub does not allow Pages for the private repository on the current plan,
+either make the source repository public or import the private repository into
+Vercel/Netlify and set `docs` as the project root.
+
 ## What it does
 
 - Loads Origin and Gain CSV exports in the browser.
