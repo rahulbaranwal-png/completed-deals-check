@@ -5,6 +5,7 @@ import {
   buildDealSnapshots,
   filterOriginDeals,
 } from "../app/origin-baseline.ts";
+import { readDealRows } from "../app/file-reader.ts";
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -31,8 +32,36 @@ test("server-renders Completed deals check", async () => {
   assert.match(html, /Completed deals/i);
   assert.match(html, /Rolling Origin baseline/i);
   assert.match(html, /Complete run &amp; save baseline/i);
+  assert.match(html, /Choose CSV or Excel/i);
+  assert.match(html, /\.csv,\.xlsx/i);
+  assert.match(html, /\/xlsx\.full\.min\.js/i);
   assert.match(html, /Origin remains read-only/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
+});
+
+test("reads Excel uploads from the first worksheet", async () => {
+  const sourceRows = [{ companyId: "42", target: "Excel Target" }];
+  const workbook = { SheetNames: ["Deals"], Sheets: { Deals: {} } };
+  const xlsxApi = {
+    read(buffer, options) {
+      assert.ok(buffer instanceof ArrayBuffer);
+      assert.deepEqual(options, { type: "array", cellDates: false });
+      return workbook;
+    },
+    utils: {
+      sheet_to_json(sheet, options) {
+        assert.equal(sheet, workbook.Sheets.Deals);
+        assert.deepEqual(options, { defval: "", raw: false, blankrows: false });
+        return sourceRows;
+      },
+    },
+  };
+  const file = {
+    name: "origin-export.xlsx",
+    arrayBuffer: async () => new ArrayBuffer(8),
+  };
+
+  assert.deepEqual(await readDealRows(file, xlsxApi), sourceRows);
 });
 
 test("keeps the starter preview removed and safety rules in the app", async () => {

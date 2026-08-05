@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { readDealRows } from "./file-reader";
 import {
   buildDealSnapshots,
   dealFingerprint,
@@ -297,45 +298,6 @@ function canonicalise(rows: RawRow[]): CanonicalDeal[] {
   });
 }
 
-function parseCsv(text: string): RawRow[] {
-  const table: string[][] = [];
-  let row: string[] = [];
-  let cell = "";
-  let quoted = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    const next = text[index + 1];
-
-    if (char === '"' && quoted && next === '"') {
-      cell += '"';
-      index += 1;
-    } else if (char === '"') {
-      quoted = !quoted;
-    } else if (char === "," && !quoted) {
-      row.push(cell);
-      cell = "";
-    } else if ((char === "\n" || char === "\r") && !quoted) {
-      if (char === "\r" && next === "\n") index += 1;
-      row.push(cell);
-      if (row.some((value) => value.trim())) table.push(row);
-      row = [];
-      cell = "";
-    } else {
-      cell += char;
-    }
-  }
-
-  row.push(cell);
-  if (row.some((value) => value.trim())) table.push(row);
-  if (table.length < 2) throw new Error("The CSV needs a header row and at least one deal.");
-
-  const headers = table[0].map((header) => header.replace(/^\uFEFF/, "").trim());
-  return table.slice(1).map((values) =>
-    Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""])),
-  );
-}
-
 function matchGainDeal(origin: CanonicalDeal, gainDeals: CanonicalDeal[]) {
   const exactId = gainDeals.find((deal) => deal.id && deal.id === origin.id);
   if (exactId) return { deal: exactId, confidence: 100 };
@@ -519,7 +481,7 @@ export default function Home() {
 
   async function handleFile(file: File, source: "origin" | "gain") {
     try {
-      const rows = parseCsv(await file.text());
+      const rows = await readDealRows(file);
       const deals = canonicalise(rows).filter((deal) => deal.target);
       if (!deals.length) throw new Error("No target/company column was detected.");
 
@@ -709,7 +671,7 @@ export default function Home() {
           <p className="eyebrow">Completed deals</p>
           <h1>Compare Origin and Gain exports</h1>
           <p className="intro-copy">
-            Upload the latest Origin export and the current Gain export. Previously completed Origin deals are skipped automatically.
+            Upload the latest Origin export and the current Gain export as CSV or Excel. Previously completed Origin deals are skipped automatically.
           </p>
         </div>
         <div className="rule-note">
@@ -763,7 +725,7 @@ export default function Home() {
         <label className="upload-card" data-source="origin">
           <input
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             onChange={(event) => event.target.files?.[0] && handleFile(event.target.files[0], "origin")}
           />
           <img className="source-logo source-logo-origin" src="/origin-logo.png" alt="Origin" />
@@ -774,7 +736,7 @@ export default function Home() {
               ? `${originDealsForRun.length} to review of ${originDeals.length} total deals`
               : `${originDeals.length} completed deals ready`}
           </span>
-          <small>Choose CSV</small>
+          <small>Choose CSV or Excel</small>
         </label>
 
         <div className="compare-card">
@@ -786,14 +748,14 @@ export default function Home() {
         <label className="upload-card" data-source="gain">
           <input
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             onChange={(event) => event.target.files?.[0] && handleFile(event.target.files[0], "gain")}
           />
           <img className="source-logo source-logo-gain" src="/gain-logo.png" alt="Gain" />
           <span className="upload-source">Gain export</span>
           <strong>{gainFileName}</strong>
           <span>{gainDeals.length} completed deals ready</span>
-          <small>Choose CSV</small>
+          <small>Choose CSV or Excel</small>
         </label>
       </section>
 
