@@ -107,6 +107,42 @@ function rowsFromMatrix(matrix: SpreadsheetCell[][], headerIndex: number): RawSp
   });
 }
 
+function columnNumber(label: string) {
+  return label.split("").reduce((value, character) => value * 26 + character.charCodeAt(0) - 64, 0);
+}
+
+function columnLabel(value: number) {
+  let label = "";
+  for (let current = value; current > 0; current = Math.floor((current - 1) / 26)) {
+    label = String.fromCharCode(((current - 1) % 26) + 65) + label;
+  }
+  return label;
+}
+
+function repairWorksheetRange(sheet: unknown) {
+  if (!sheet || typeof sheet !== "object") return;
+  const worksheet = sheet as Record<string, unknown>;
+  let minColumn = Number.POSITIVE_INFINITY;
+  let minRow = Number.POSITIVE_INFINITY;
+  let maxColumn = 0;
+  let maxRow = 0;
+
+  for (const key of Object.keys(worksheet)) {
+    const match = /^([A-Z]+)(\d+)$/.exec(key);
+    if (!match) continue;
+    const column = columnNumber(match[1]);
+    const row = Number(match[2]);
+    minColumn = Math.min(minColumn, column);
+    minRow = Math.min(minRow, row);
+    maxColumn = Math.max(maxColumn, column);
+    maxRow = Math.max(maxRow, row);
+  }
+
+  if (maxColumn && maxRow) {
+    worksheet["!ref"] = `${columnLabel(minColumn)}${minRow}:${columnLabel(maxColumn)}${maxRow}`;
+  }
+}
+
 export function parseCsv(text: string): RawSpreadsheetRow[] {
   const table: string[][] = [];
   let row: string[] = [];
@@ -168,6 +204,7 @@ export async function readDealRows(
     for (const sheetName of workbook.SheetNames ?? []) {
       const sheet = workbook.Sheets?.[sheetName];
       if (!sheet) continue;
+      repairWorksheetRange(sheet);
       const matrix = xlsxApi.utils.sheet_to_json(sheet, {
         header: 1,
         defval: "",

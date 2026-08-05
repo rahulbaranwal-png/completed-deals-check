@@ -46,7 +46,13 @@ test("finds the deal table when an Excel export has a cover sheet and offset hea
     ["ID", "Deal target", "Buyers"],
     ["42", "Excel Target", "Example Buyer"],
   ];
-  const workbook = { SheetNames: ["Overview", "Deals"], Sheets: { Overview: {}, Deals: {} } };
+  const workbook = {
+    SheetNames: ["Overview", "Deals"],
+    Sheets: {
+      Overview: {},
+      Deals: { "!ref": "A1:C2", A1: {}, C3: {} },
+    },
+  };
   const xlsxApi = {
     read(buffer, options) {
       assert.ok(buffer instanceof ArrayBuffer);
@@ -56,6 +62,7 @@ test("finds the deal table when an Excel export has a cover sheet and offset hea
     utils: {
       sheet_to_json(sheet, options) {
         assert.deepEqual(options, { header: 1, defval: "", raw: false, blankrows: true });
+        if (sheet === workbook.Sheets.Deals) assert.equal(sheet["!ref"], "A1:C3");
         return sheet === workbook.Sheets.Overview ? cover : dealsSheet;
       },
     },
