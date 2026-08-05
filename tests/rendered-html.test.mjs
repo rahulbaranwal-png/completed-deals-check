@@ -33,15 +33,20 @@ test("server-renders Completed deals check", async () => {
   assert.match(html, /Rolling Origin baseline/i);
   assert.match(html, /Complete run &amp; save baseline/i);
   assert.match(html, /Choose CSV or Excel/i);
-  assert.match(html, /\.csv,\.xlsx/i);
+  assert.match(html, /\.csv,\.xlsx,\.xls/i);
   assert.match(html, /\/xlsx\.full\.min\.js/i);
   assert.match(html, /Origin remains read-only/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });
 
-test("reads Excel uploads from the first worksheet", async () => {
-  const sourceRows = [{ companyId: "42", target: "Excel Target" }];
-  const workbook = { SheetNames: ["Deals"], Sheets: { Deals: {} } };
+test("finds the deal table when an Excel export has a cover sheet and offset headers", async () => {
+  const cover = [["Gain export overview"], ["Generated today"]];
+  const dealsSheet = [
+    ["General information", "", ""],
+    ["ID", "Deal target", "Buyers"],
+    ["42", "Excel Target", "Example Buyer"],
+  ];
+  const workbook = { SheetNames: ["Overview", "Deals"], Sheets: { Overview: {}, Deals: {} } };
   const xlsxApi = {
     read(buffer, options) {
       assert.ok(buffer instanceof ArrayBuffer);
@@ -50,9 +55,8 @@ test("reads Excel uploads from the first worksheet", async () => {
     },
     utils: {
       sheet_to_json(sheet, options) {
-        assert.equal(sheet, workbook.Sheets.Deals);
-        assert.deepEqual(options, { defval: "", raw: false, blankrows: false });
-        return sourceRows;
+        assert.deepEqual(options, { header: 1, defval: "", raw: false, blankrows: true });
+        return sheet === workbook.Sheets.Overview ? cover : dealsSheet;
       },
     },
   };
@@ -61,7 +65,9 @@ test("reads Excel uploads from the first worksheet", async () => {
     arrayBuffer: async () => new ArrayBuffer(8),
   };
 
-  assert.deepEqual(await readDealRows(file, xlsxApi), sourceRows);
+  assert.deepEqual(await readDealRows(file, xlsxApi), [
+    { ID: "42", "Deal target": "Excel Target", Buyers: "Example Buyer" },
+  ]);
 });
 
 test("keeps the starter preview removed and safety rules in the app", async () => {

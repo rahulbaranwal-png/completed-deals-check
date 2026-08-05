@@ -83,10 +83,10 @@ const FIELD_DEFINITIONS: Array<{ key: FieldKey; label: string }> = [
 
 const ALIASES: Record<keyof CanonicalDeal, string[]> = {
   id: ["companyid", "deal_id", "id", "dealid", "origin_deal_id", "gain_deal_id"],
-  target: ["target", "target_name", "company", "asset", "target_company"],
-  buyer: ["buyer", "acquirer", "investor", "buyer_name", "announcedbuyer"],
-  seller: ["seller", "vendor", "seller_name"],
-  completionDate: ["completion_date", "completed_date", "close_date", "closed_date"],
+  target: ["target", "target_name", "deal_target", "target_asset", "company", "asset", "target_company"],
+  buyer: ["buyer", "buyers", "acquirer", "investor", "buyer_name", "announcedbuyer"],
+  seller: ["seller", "sellers", "vendor", "seller_name"],
+  completionDate: ["completion_date", "completed_date", "close_date", "closed_date", "date"],
   enterpriseValue: ["enterprise_value", "deal_value", "ev", "transaction_value"],
   revenue: ["revenue", "sales", "target_revenue", "marketedrevenue"],
   ebitda: ["ebitda", "target_ebitda", "marketedebitda"],
@@ -267,11 +267,19 @@ function pickMany(row: RawRow, aliases: string[]) {
   ).join("; ");
 }
 
-function canonicalise(rows: RawRow[]): CanonicalDeal[] {
+function canonicalise(rows: RawRow[], source: "origin" | "gain"): CanonicalDeal[] {
   return rows.map((row, index) => {
-    const cleaned = Object.fromEntries(
+    const normalised = Object.fromEntries(
       Object.entries(row).map(([key, value]) => [normaliseHeader(key), value]),
     );
+    const sourcePrefixes = source === "gain" ? ["gain_"] : ["origin_", "itn_"];
+    const preferred = Object.fromEntries(
+      Object.entries(normalised).flatMap(([key, value]) => {
+        const prefix = sourcePrefixes.find((candidate) => key.startsWith(candidate));
+        return prefix ? [[key.slice(prefix.length), value]] : [];
+      }),
+    );
+    const cleaned = { ...normalised, ...preferred };
     const originator = pick(cleaned, ["originator"]);
     const suppliedSourceType = pick(cleaned, ALIASES.sourceType);
 
@@ -482,8 +490,15 @@ export default function Home() {
   async function handleFile(file: File, source: "origin" | "gain") {
     try {
       const rows = await readDealRows(file);
-      const deals = canonicalise(rows).filter((deal) => deal.target);
-      if (!deals.length) throw new Error("No target/company column was detected.");
+      const deals = canonicalise(rows, source).filter((deal) => deal.target);
+      if (!deals.length) {
+        const foundColumns = Object.keys(rows[0] ?? {}).slice(0, 6).join(", ");
+        throw new Error(
+          foundColumns
+            ? `No target/company column was detected. Found: ${foundColumns}.`
+            : "No target/company column was detected.",
+        );
+      }
 
       if (source === "origin") {
         setOriginDeals(deals);
@@ -725,7 +740,7 @@ export default function Home() {
         <label className="upload-card" data-source="origin">
           <input
             type="file"
-            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
             onChange={(event) => event.target.files?.[0] && handleFile(event.target.files[0], "origin")}
           />
           <img className="source-logo source-logo-origin" src="/origin-logo.png" alt="Origin" />
@@ -748,7 +763,7 @@ export default function Home() {
         <label className="upload-card" data-source="gain">
           <input
             type="file"
-            accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
             onChange={(event) => event.target.files?.[0] && handleFile(event.target.files[0], "gain")}
           />
           <img className="source-logo source-logo-gain" src="/gain-logo.png" alt="Gain" />
@@ -893,7 +908,7 @@ export default function Home() {
       </section>
 
       <footer>
-        <span>Local MVP · CSV files are processed in this browser session</span>
+        <span>Local MVP · CSV and Excel files are processed in this browser session</span>
         <span>Rolling deal keys are saved locally and excluded from GitHub</span>
         <span>Origin remains read-only · Gain changes require export and approval</span>
       </footer>
