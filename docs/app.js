@@ -6,9 +6,9 @@ import {
   createReviewQueue,
   filterOriginDeals,
   isValidBaseline,
-  parseCsv,
   statusLabel,
 } from "./logic.mjs";
+import { readDealRows } from "./file-reader.mjs";
 
 const STORAGE_KEY = "completed-deals-check-origin-baseline-v2";
 
@@ -420,7 +420,7 @@ function setNotice(message) {
 
 async function handleDealFile(file, source) {
   try {
-    const rows = parseCsv(await file.text());
+    const rows = await readDealRows(file);
     const deals = canonicalise(rows).filter((deal) => deal.target);
     if (!deals.length) throw new Error("No target/company column was detected.");
 

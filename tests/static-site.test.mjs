@@ -8,6 +8,7 @@ import {
   filterOriginDeals,
   parseCsv,
 } from "../docs/logic.mjs";
+import { readDealRows } from "../docs/file-reader.mjs";
 
 test("CSV parser handles quoted commas and canonical aliases", () => {
   const rows = parseCsv(
@@ -40,6 +41,31 @@ test("rolling baseline excludes unchanged rows but includes updated and same-day
     eligible.map((deal) => deal.target),
     ["Alphatron", "New same-day deal"],
   );
+});
+
+test("Excel reader loads the first worksheet and returns row objects", async () => {
+  const sourceRows = [{ companyId: "42", target: "Excel Target" }];
+  const workbook = { SheetNames: ["Deals"], Sheets: { Deals: {} } };
+  const xlsxApi = {
+    read(buffer, options) {
+      assert.ok(buffer instanceof ArrayBuffer);
+      assert.deepEqual(options, { type: "array", cellDates: false });
+      return workbook;
+    },
+    utils: {
+      sheet_to_json(sheet, options) {
+        assert.equal(sheet, workbook.Sheets.Deals);
+        assert.deepEqual(options, { defval: "", raw: false, blankrows: false });
+        return sourceRows;
+      },
+    },
+  };
+  const file = {
+    name: "origin-export.xlsx",
+    arrayBuffer: async () => new ArrayBuffer(8),
+  };
+
+  assert.deepEqual(await readDealRows(file, xlsxApi), sourceRows);
 });
 
 test("comparison proposes blanks and locks conflicts", () => {
@@ -86,6 +112,8 @@ test("static HTML uses relative assets and makes no server API call", async () =
   const html = await readFile(new URL("../docs/index.html", import.meta.url), "utf8");
   const app = await readFile(new URL("../docs/app.js", import.meta.url), "utf8");
   assert.match(html, /src="\.\/app\.js"/);
+  assert.match(html, /src="\.\/xlsx\.full\.min\.js"/);
+  assert.match(html, /accept="\.csv,\.xlsx/);
   assert.match(html, /src="\.\/origin-logo\.png"/);
   assert.doesNotMatch(app, /\bfetch\s*\(/);
   assert.doesNotMatch(app, /\/api\/origin-baseline/);

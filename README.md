@@ -8,7 +8,7 @@ The current MVP never writes to Origin or Gain.
 
 The `docs` folder contains a plain HTML/CSS/JavaScript edition that can be
 published on GitHub Pages, Vercel, Netlify, or Cloudflare Pages. It has no
-server-side code and makes no API calls. Origin and Gain CSV files are parsed
+server-side code and makes no API calls. Origin and Gain CSV or Excel files are parsed
 inside the visitor's browser and are not uploaded to the website host.
 
 The rolling Origin baseline is saved in the current browser. Use **Backup
@@ -30,14 +30,14 @@ Vercel/Netlify and set `docs` as the project root.
 
 ## What it does
 
-- Loads Origin and Gain CSV exports in the browser.
+- Loads Origin and Gain CSV or Excel (`.xlsx`) exports in the browser.
 - Matches deals using deal IDs, target and buyer names, or target and completion date.
 - Proposes Origin values only when the corresponding Gain field is blank.
 - Locks conflicting values for manual review.
 - Keeps unmatched deals visible instead of forcing a weak match.
 - Exports approved changes with source classification and match confidence.
 
-## Supported CSV columns
+## Supported CSV and Excel columns
 
 The app recognises common variations of these fields:
 
