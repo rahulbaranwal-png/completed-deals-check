@@ -1,37 +1,189 @@
-import { parseCsv } from "./logic.mjs";
-
-const EXCEL_EXTENSIONS = new Set(["xlsx"]);
-
+const HEADER_HINTS = new Set([
+    "id",
+    "companyid",
+    "company_id",
+    "deal_id",
+    "dealid",
+    "target",
+    "target_name",
+    "target_asset",
+    "target_company",
+    "deal_target",
+    "company",
+    "asset",
+    "buyer",
+    "buyers",
+    "seller",
+    "sellers",
+    "date",
+    "completion_date",
+    "completed_date",
+    "deal_status",
+    "revenue",
+    "ebitda",
+    "ev",
+    "enterprise_value",
+]);
+const TARGET_HEADERS = new Set([
+    "target",
+    "target_name",
+    "target_asset",
+    "target_company",
+    "deal_target",
+    "company",
+    "asset",
+]);
 function extensionOf(fileName = "") {
-  return fileName.toLowerCase().split(".").pop() ?? "";
+    return fileName.toLowerCase().split(".").pop() ?? "";
 }
-
-export async function readDealRows(file, xlsxApi = globalThis.XLSX) {
-  const extension = extensionOf(file?.name);
-
-  if (extension === "csv") {
-    return parseCsv(await file.text());
-  }
-
-  if (EXCEL_EXTENSIONS.has(extension)) {
-    if (!xlsxApi?.read || !xlsxApi?.utils?.sheet_to_json) {
-      throw new Error("Excel support did not load. Refresh the page and try again.");
+function cellText(value) {
+    if (value instanceof Date)
+        return value.toISOString();
+    return value === null || value === undefined ? "" : String(value).trim();
+}
+function normaliseHeader(value) {
+    return cellText(value)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_|_$/g, "");
+}
+function withoutSourcePrefix(value) {
+    return value.replace(/^(gain|origin|itn)_+/, "");
+}
+function headerScore(row) {
+    const headers = row.map(normaliseHeader).filter(Boolean);
+    const unprefixed = headers.map(withoutSourcePrefix);
+    if (!unprefixed.some((header) => TARGET_HEADERS.has(header)))
+        return 0;
+    const recognised = unprefixed.filter((header) => HEADER_HINTS.has(header)).length;
+    const hasId = unprefixed.some((header) => ["id", "companyid", "company_id", "deal_id", "dealid"].includes(header));
+    return 20 + recognised * 4 + (hasId ? 6 : 0) + Math.min(headers.length, 20) / 20;
+}
+function rowsFromMatrix(matrix, headerIndex) {
+    const seen = new Map();
+    const headers = matrix[headerIndex].map((value) => {
+        const base = cellText(value);
+        if (!base)
+            return "";
+        const count = (seen.get(base) ?? 0) + 1;
+        seen.set(base, count);
+        return count === 1 ? base : `${base} ${count}`;
+    });
+    return matrix.slice(headerIndex + 1).flatMap((values) => {
+        if (!values.some((value) => cellText(value)))
+            return [];
+        const row = Object.fromEntries(headers.flatMap((header, index) => header ? [[header, cellText(values[index])]] : []));
+        return Object.keys(row).length ? [row] : [];
+    });
+}
+function columnNumber(label) {
+    return label.split("").reduce((value, character) => value * 26 + character.charCodeAt(0) - 64, 0);
+}
+function columnLabel(value) {
+    let label = "";
+    for (let current = value; current > 0; current = Math.floor((current - 1) / 26)) {
+        label = String.fromCharCode(((current - 1) % 26) + 65) + label;
     }
-
-    const workbook = xlsxApi.read(await file.arrayBuffer(), {
-      type: "array",
-      cellDates: false,
-    });
-    const firstSheetName = workbook.SheetNames?.[0];
-    const firstSheet = firstSheetName ? workbook.Sheets?.[firstSheetName] : null;
-    if (!firstSheet) throw new Error("No worksheet was found in this Excel file.");
-
-    return xlsxApi.utils.sheet_to_json(firstSheet, {
-      defval: "",
-      raw: false,
-      blankrows: false,
-    });
-  }
-
-  throw new Error("Choose a CSV or Excel (.xlsx) file.");
+    return label;
+}
+function repairWorksheetRange(sheet) {
+    if (!sheet || typeof sheet !== "object")
+        return;
+    const worksheet = sheet;
+    let minColumn = Number.POSITIVE_INFINITY;
+    let minRow = Number.POSITIVE_INFINITY;
+    let maxColumn = 0;
+    let maxRow = 0;
+    for (const key of Object.keys(worksheet)) {
+        const match = /^([A-Z]+)(\d+)$/.exec(key);
+        if (!match)
+            continue;
+        const column = columnNumber(match[1]);
+        const row = Number(match[2]);
+        minColumn = Math.min(minColumn, column);
+        minRow = Math.min(minRow, row);
+        maxColumn = Math.max(maxColumn, column);
+        maxRow = Math.max(maxRow, row);
+    }
+    if (maxColumn && maxRow) {
+        worksheet["!ref"] = `${columnLabel(minColumn)}${minRow}:${columnLabel(maxColumn)}${maxRow}`;
+    }
+}
+export function parseCsv(text) {
+    const table = [];
+    let row = [];
+    let cell = "";
+    let quoted = false;
+    for (let index = 0; index < text.length; index += 1) {
+        const char = text[index];
+        const next = text[index + 1];
+        if (char === '"' && quoted && next === '"') {
+            cell += '"';
+            index += 1;
+        }
+        else if (char === '"') {
+            quoted = !quoted;
+        }
+        else if (char === "," && !quoted) {
+            row.push(cell);
+            cell = "";
+        }
+        else if ((char === "\n" || char === "\r") && !quoted) {
+            if (char === "\r" && next === "\n")
+                index += 1;
+            row.push(cell);
+            if (row.some((value) => value.trim()))
+                table.push(row);
+            row = [];
+            cell = "";
+        }
+        else {
+            cell += char;
+        }
+    }
+    row.push(cell);
+    if (row.some((value) => value.trim()))
+        table.push(row);
+    if (table.length < 2)
+        throw new Error("The CSV needs a header row and at least one deal.");
+    const headers = table[0].map((header) => header.replace(/^\uFEFF/, "").trim());
+    return table.slice(1).map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""])));
+}
+export async function readDealRows(file, suppliedXlsxApi) {
+    const extension = extensionOf(file.name);
+    if (extension === "csv")
+        return parseCsv(await file.text());
+    if (extension === "xlsx" || extension === "xls") {
+        const xlsxApi = suppliedXlsxApi ?? globalThis.XLSX;
+        if (!xlsxApi?.read || !xlsxApi?.utils?.sheet_to_json) {
+            throw new Error("Excel support did not load. Refresh the page and try again.");
+        }
+        const workbook = xlsxApi.read(await file.arrayBuffer(), {
+            type: "array",
+            cellDates: false,
+        });
+        let bestTable = null;
+        for (const sheetName of workbook.SheetNames ?? []) {
+            const sheet = workbook.Sheets?.[sheetName];
+            if (!sheet)
+                continue;
+            repairWorksheetRange(sheet);
+            const matrix = xlsxApi.utils.sheet_to_json(sheet, {
+                header: 1,
+                defval: "",
+                raw: false,
+                blankrows: true,
+            });
+            matrix.slice(0, 50).forEach((row, headerIndex) => {
+                const score = headerScore(row);
+                if (score > (bestTable?.score ?? 0))
+                    bestTable = { matrix, headerIndex, score };
+            });
+        }
+        if (!bestTable) {
+            throw new Error("No deal table was found. The Excel file needs a target/company column.");
+        }
+        return rowsFromMatrix(bestTable.matrix, bestTable.headerIndex);
+    }
+    throw new Error("Choose a CSV or Excel (.xlsx or .xls) file.");
 }

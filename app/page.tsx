@@ -1,6 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  canonicalise,
+  createReviewQueue,
+  type CanonicalDeal,
+  type FieldDiff,
+  type ReviewDeal,
+} from "./deal-matcher";
 import { readDealRows } from "./file-reader";
 import {
   buildDealSnapshots,
@@ -10,54 +17,6 @@ import {
   newestOriginDeal,
   type BaselineDealSnapshot,
 } from "./origin-baseline";
-
-type RawRow = Record<string, string>;
-
-type CanonicalDeal = {
-  id: string;
-  target: string;
-  buyer: string;
-  seller: string;
-  completionDate: string;
-  enterpriseValue: string;
-  revenue: string;
-  ebitda: string;
-  stake: string;
-  advisers: string;
-  sourceType: string;
-  sourceDate: string;
-};
-
-type FieldKey =
-  | "enterpriseValue"
-  | "revenue"
-  | "ebitda"
-  | "stake"
-  | "advisers"
-  | "seller"
-  | "completionDate";
-
-type FieldDiff = {
-  key: FieldKey | "deal";
-  label: string;
-  originValue: string;
-  gainValue: string;
-  status: "missing" | "conflict" | "unmatched";
-};
-
-type ReviewDeal = {
-  reviewId: string;
-  originId: string;
-  gainId: string;
-  target: string;
-  buyer: string;
-  completionDate: string;
-  sourceType: string;
-  sourceDate: string;
-  matchConfidence: number;
-  status: "missing" | "conflict" | "unmatched" | "aligned";
-  diffs: FieldDiff[];
-};
 
 type OriginBaseline = {
   version: 2;
@@ -69,38 +28,6 @@ type OriginBaseline = {
   dealKeys: string[];
   dealSnapshots: BaselineDealSnapshot[];
   totalChecked: number;
-};
-
-const FIELD_DEFINITIONS: Array<{ key: FieldKey; label: string }> = [
-  { key: "enterpriseValue", label: "Enterprise value" },
-  { key: "revenue", label: "Revenue" },
-  { key: "ebitda", label: "EBITDA" },
-  { key: "stake", label: "Stake acquired" },
-  { key: "advisers", label: "Advisers" },
-  { key: "seller", label: "Seller" },
-  { key: "completionDate", label: "Completion date" },
-];
-
-const ALIASES: Record<keyof CanonicalDeal, string[]> = {
-  id: ["companyid", "deal_id", "id", "dealid", "origin_deal_id", "gain_deal_id"],
-  target: ["target", "target_name", "deal_target", "target_asset", "company", "asset", "target_company"],
-  buyer: ["buyer", "buyers", "acquirer", "investor", "buyer_name", "announcedbuyer"],
-  seller: ["seller", "sellers", "vendor", "seller_name"],
-  completionDate: ["completion_date", "completed_date", "close_date", "closed_date", "date"],
-  enterpriseValue: ["enterprise_value", "deal_value", "ev", "transaction_value"],
-  revenue: ["revenue", "sales", "target_revenue", "marketedrevenue"],
-  ebitda: ["ebitda", "target_ebitda", "marketedebitda"],
-  stake: ["stake", "stake_acquired", "percentage_acquired", "ownership"],
-  advisers: [
-    "advisers",
-    "advisors",
-    "financial_advisers",
-    "financial_advisors",
-    "sellsideadvisors",
-    "buysideadvisors",
-  ],
-  sourceType: ["source_type", "source", "intelligence_type", "provenance"],
-  sourceDate: ["source_date", "intelligence_date", "updated_at", "last_updated", "lastupdated"],
 };
 
 const DEMO_ORIGIN: CanonicalDeal[] = [
@@ -234,171 +161,6 @@ const DEMO_GAIN: CanonicalDeal[] = [
     sourceDate: "2026-07-05",
   },
 ];
-
-function normaliseHeader(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_|_$/g, "");
-}
-
-function normaliseValue(value: string) {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-function normaliseName(value: string) {
-  return normaliseValue(
-    value.replace(/\b(group|holdings|limited|ltd|incorporated|inc|plc|llc)\b/gi, ""),
-  );
-}
-
-function pick(row: RawRow, aliases: string[]) {
-  for (const alias of aliases) {
-    const value = row[alias];
-    if (value !== undefined) return value.trim();
-  }
-  return "";
-}
-
-function pickMany(row: RawRow, aliases: string[]) {
-  return Array.from(
-    new Set(aliases.map((alias) => row[alias]?.trim()).filter((value): value is string => Boolean(value))),
-  ).join("; ");
-}
-
-function canonicalise(rows: RawRow[], source: "origin" | "gain"): CanonicalDeal[] {
-  return rows.map((row, index) => {
-    const normalised = Object.fromEntries(
-      Object.entries(row).map(([key, value]) => [normaliseHeader(key), value]),
-    );
-    const sourcePrefixes = source === "gain" ? ["gain_"] : ["origin_", "itn_"];
-    const preferred = Object.fromEntries(
-      Object.entries(normalised).flatMap(([key, value]) => {
-        const prefix = sourcePrefixes.find((candidate) => key.startsWith(candidate));
-        return prefix ? [[key.slice(prefix.length), value]] : [];
-      }),
-    );
-    const cleaned = { ...normalised, ...preferred };
-    const originator = pick(cleaned, ["originator"]);
-    const suppliedSourceType = pick(cleaned, ALIASES.sourceType);
-
-    return {
-      id: pick(cleaned, ALIASES.id) || `ROW-${index + 1}`,
-      target: pick(cleaned, ALIASES.target),
-      buyer: pick(cleaned, ALIASES.buyer),
-      seller: pick(cleaned, ALIASES.seller),
-      completionDate: pick(cleaned, ALIASES.completionDate),
-      enterpriseValue: pick(cleaned, ALIASES.enterpriseValue),
-      revenue: pick(cleaned, ALIASES.revenue),
-      ebitda: pick(cleaned, ALIASES.ebitda),
-      stake: pick(cleaned, ALIASES.stake),
-      advisers: pickMany(cleaned, ALIASES.advisers),
-      sourceType:
-        suppliedSourceType ||
-        (normaliseValue(originator) === "aggregation"
-          ? "Aggregation"
-          : originator
-            ? "Prop intelligence"
-            : "Not supplied"),
-      sourceDate: pick(cleaned, ALIASES.sourceDate) || "Not supplied",
-    };
-  });
-}
-
-function matchGainDeal(origin: CanonicalDeal, gainDeals: CanonicalDeal[]) {
-  const exactId = gainDeals.find((deal) => deal.id && deal.id === origin.id);
-  if (exactId) return { deal: exactId, confidence: 100 };
-
-  const target = normaliseName(origin.target);
-  const buyer = normaliseName(origin.buyer);
-  const targetAndBuyer = gainDeals.find(
-    (deal) => normaliseName(deal.target) === target && normaliseName(deal.buyer) === buyer,
-  );
-  if (targetAndBuyer) return { deal: targetAndBuyer, confidence: 96 };
-
-  const targetAndDate = gainDeals.find(
-    (deal) =>
-      normaliseName(deal.target) === target &&
-      Boolean(origin.completionDate) &&
-      deal.completionDate === origin.completionDate,
-  );
-  if (targetAndDate) return { deal: targetAndDate, confidence: 88 };
-
-  return null;
-}
-
-function createReviewQueue(originDeals: CanonicalDeal[], gainDeals: CanonicalDeal[]): ReviewDeal[] {
-  return originDeals.map((origin, index) => {
-    const match = matchGainDeal(origin, gainDeals);
-
-    if (!match) {
-      return {
-        reviewId: `unmatched-${origin.id}-${index}`,
-        originId: origin.id,
-        gainId: "",
-        target: origin.target || "Unnamed target",
-        buyer: origin.buyer || "Buyer not supplied",
-        completionDate: origin.completionDate || "Date not supplied",
-        sourceType: origin.sourceType,
-        sourceDate: origin.sourceDate,
-        matchConfidence: 0,
-        status: "unmatched" as const,
-        diffs: [
-          {
-            key: "deal" as const,
-            label: "Deal match",
-            originValue: `${origin.target || "Unnamed target"} / ${origin.buyer || "Buyer not supplied"}`,
-            gainValue: "No safe Gain match found",
-            status: "unmatched" as const,
-          },
-        ],
-      };
-    }
-
-    const diffs: FieldDiff[] = [];
-    for (const field of FIELD_DEFINITIONS) {
-      const originValue = origin[field.key];
-      const gainValue = match.deal[field.key];
-      if (!originValue) continue;
-
-      if (!gainValue) {
-        diffs.push({
-          key: field.key,
-          label: field.label,
-          originValue,
-          gainValue: "Blank",
-          status: "missing",
-        });
-      } else if (normaliseValue(originValue) !== normaliseValue(gainValue)) {
-        diffs.push({
-          key: field.key,
-          label: field.label,
-          originValue,
-          gainValue,
-          status: "conflict",
-        });
-      }
-    }
-
-    const hasConflict = diffs.some((diff) => diff.status === "conflict");
-    const hasMissing = diffs.some((diff) => diff.status === "missing");
-
-    return {
-      reviewId: `${origin.id}-${match.deal.id}`,
-      originId: origin.id,
-      gainId: match.deal.id,
-      target: origin.target || match.deal.target || "Unnamed target",
-      buyer: origin.buyer || match.deal.buyer || "Buyer not supplied",
-      completionDate: origin.completionDate || match.deal.completionDate || "Date not supplied",
-      sourceType: origin.sourceType,
-      sourceDate: origin.sourceDate,
-      matchConfidence: match.confidence,
-      status: hasConflict ? "conflict" : hasMissing ? "missing" : "aligned",
-      diffs,
-    };
-  });
-}
 
 function csvEscape(value: string | number) {
   const text = String(value);
@@ -843,6 +605,7 @@ export default function Home() {
                 <div className="confidence-card">
                   <span>Match confidence</span>
                   <strong>{selected.matchConfidence}%</strong>
+                  <small>{selected.matchReason}</small>
                 </div>
               </div>
 

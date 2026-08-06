@@ -250,6 +250,7 @@ button { color: inherit; }
 .confidence-card { min-width: 125px; padding: 13px; border-radius: 13px; background: #f5f3ff; text-align: right; }
 .confidence-card span { color: var(--muted); font-size: 9px; font-weight: 750; text-transform: uppercase; letter-spacing: 0.06em; }
 .confidence-card strong { display: block; margin-top: 4px; font-size: 24px; }
+.confidence-card small { display: block; max-width: 220px; margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.35; }
 .provenance-strip { margin: 24px 0; padding: 15px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); display: grid; grid-template-columns: repeat(3, 1fr); }
 .provenance-strip div { padding: 0 16px; border-right: 1px solid var(--line); display: grid; gap: 5px; }
 .provenance-strip div:first-child { padding-left: 0; }

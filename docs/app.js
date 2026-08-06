@@ -383,7 +383,8 @@ function renderDetail() {
     `<p>${escapeHtml(selected.buyer)} · Completed ${escapeHtml(selected.completionDate)}</p>` +
     "</div>" +
     '<div class="confidence-card"><span>Match confidence</span>' +
-    `<strong>${selected.matchConfidence}%</strong></div></div>` +
+    `<strong>${selected.matchConfidence}%</strong>` +
+    `<small>${escapeHtml(selected.matchReason)}</small></div></div>` +
     '<div class="provenance-strip">' +
     `<div><span>Origin classification</span><strong>${escapeHtml(selected.sourceType)}</strong></div>` +
     `<div><span>Intelligence date</span><strong>${escapeHtml(selected.sourceDate)}</strong></div>` +
@@ -421,7 +422,7 @@ function setNotice(message) {
 async function handleDealFile(file, source) {
   try {
     const rows = await readDealRows(file);
-    const deals = canonicalise(rows).filter((deal) => deal.target);
+    const deals = canonicalise(rows, source).filter((deal) => deal.target);
     if (!deals.length) throw new Error("No target/company column was detected.");
 
     if (source === "origin") {

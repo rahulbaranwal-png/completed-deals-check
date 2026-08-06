@@ -1,104 +1,24 @@
-export const FIELD_DEFINITIONS = [
-  { key: "enterpriseValue", label: "Enterprise value" },
-  { key: "revenue", label: "Revenue" },
-  { key: "ebitda", label: "EBITDA" },
-  { key: "stake", label: "Stake acquired" },
-  { key: "advisers", label: "Advisers" },
-  { key: "seller", label: "Seller" },
-  { key: "completionDate", label: "Completion date" },
-];
+import {
+  buildGainIndex,
+  canonicalise,
+  createReviewQueue,
+  matchGainDeal,
+  normaliseHeader,
+  normaliseName,
+  normaliseValue,
+  suggestGainDeals,
+} from "./deal-matcher.mjs";
 
-export const ALIASES = {
-  id: ["companyid", "deal_id", "id", "dealid", "origin_deal_id", "gain_deal_id"],
-  target: ["target", "target_name", "company", "asset", "target_company"],
-  buyer: ["buyer", "acquirer", "investor", "buyer_name", "announcedbuyer"],
-  seller: ["seller", "vendor", "seller_name"],
-  completionDate: ["completion_date", "completed_date", "close_date", "closed_date"],
-  enterpriseValue: ["enterprise_value", "deal_value", "ev", "transaction_value"],
-  revenue: ["revenue", "sales", "target_revenue", "marketedrevenue"],
-  ebitda: ["ebitda", "target_ebitda", "marketedebitda"],
-  stake: ["stake", "stake_acquired", "percentage_acquired", "ownership"],
-  advisers: [
-    "advisers",
-    "advisors",
-    "financial_advisers",
-    "financial_advisors",
-    "sellsideadvisors",
-    "buysideadvisors",
-  ],
-  sourceType: ["source_type", "source", "intelligence_type", "provenance"],
-  sourceDate: ["source_date", "intelligence_date", "updated_at", "last_updated", "lastupdated"],
+export {
+  buildGainIndex,
+  canonicalise,
+  createReviewQueue,
+  matchGainDeal,
+  normaliseHeader,
+  normaliseName,
+  normaliseValue,
+  suggestGainDeals,
 };
-
-export function normaliseHeader(value) {
-  return String(value)
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_|_$/g, "");
-}
-
-export function normaliseValue(value) {
-  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-export function normaliseName(value) {
-  return normaliseValue(
-    String(value ?? "").replace(
-      /\b(group|holdings|limited|ltd|incorporated|inc|plc|llc)\b/gi,
-      "",
-    ),
-  );
-}
-
-function pick(row, aliases) {
-  for (const alias of aliases) {
-    const value = row[alias];
-    if (value !== undefined) return String(value).trim();
-  }
-  return "";
-}
-
-function pickMany(row, aliases) {
-  return Array.from(
-    new Set(
-      aliases
-        .map((alias) => row[alias]?.trim())
-        .filter((value) => Boolean(value)),
-    ),
-  ).join("; ");
-}
-
-export function canonicalise(rows) {
-  return rows.map((row, index) => {
-    const cleaned = Object.fromEntries(
-      Object.entries(row).map(([key, value]) => [normaliseHeader(key), String(value ?? "")]),
-    );
-    const originator = pick(cleaned, ["originator"]);
-    const suppliedSourceType = pick(cleaned, ALIASES.sourceType);
-
-    return {
-      id: pick(cleaned, ALIASES.id) || `ROW-${index + 1}`,
-      target: pick(cleaned, ALIASES.target),
-      buyer: pick(cleaned, ALIASES.buyer),
-      seller: pick(cleaned, ALIASES.seller),
-      completionDate: pick(cleaned, ALIASES.completionDate),
-      enterpriseValue: pick(cleaned, ALIASES.enterpriseValue),
-      revenue: pick(cleaned, ALIASES.revenue),
-      ebitda: pick(cleaned, ALIASES.ebitda),
-      stake: pick(cleaned, ALIASES.stake),
-      advisers: pickMany(cleaned, ALIASES.advisers),
-      sourceType:
-        suppliedSourceType ||
-        (normaliseValue(originator) === "aggregation"
-          ? "Aggregation"
-          : originator
-            ? "Prop intelligence"
-            : "Not supplied"),
-      sourceDate: pick(cleaned, ALIASES.sourceDate) || "Not supplied",
-    };
-  });
-}
 
 export function parseCsv(text) {
   const table = [];
@@ -217,101 +137,6 @@ export function newestOriginDeal(deals) {
     if (!Number.isFinite(newestDate) || dealDate > newestDate) return deal;
     return newest;
   }, undefined);
-}
-
-export function matchGainDeal(origin, gainDeals) {
-  const exactId = gainDeals.find((deal) => deal.id && deal.id === origin.id);
-  if (exactId) return { deal: exactId, confidence: 100 };
-
-  const target = normaliseName(origin.target);
-  const buyer = normaliseName(origin.buyer);
-  const targetAndBuyer = gainDeals.find(
-    (deal) => normaliseName(deal.target) === target && normaliseName(deal.buyer) === buyer,
-  );
-  if (targetAndBuyer) return { deal: targetAndBuyer, confidence: 96 };
-
-  const targetAndDate = gainDeals.find(
-    (deal) =>
-      normaliseName(deal.target) === target &&
-      Boolean(origin.completionDate) &&
-      deal.completionDate === origin.completionDate,
-  );
-  if (targetAndDate) return { deal: targetAndDate, confidence: 88 };
-
-  return null;
-}
-
-export function createReviewQueue(originDeals, gainDeals) {
-  return originDeals.map((origin, index) => {
-    const match = matchGainDeal(origin, gainDeals);
-
-    if (!match) {
-      return {
-        reviewId: `unmatched-${origin.id}-${index}`,
-        originId: origin.id,
-        gainId: "",
-        target: origin.target || "Unnamed target",
-        buyer: origin.buyer || "Buyer not supplied",
-        completionDate: origin.completionDate || "Date not supplied",
-        sourceType: origin.sourceType,
-        sourceDate: origin.sourceDate,
-        matchConfidence: 0,
-        status: "unmatched",
-        diffs: [
-          {
-            key: "deal",
-            label: "Deal match",
-            originValue: `${origin.target || "Unnamed target"} / ${origin.buyer || "Buyer not supplied"}`,
-            gainValue: "No safe Gain match found",
-            status: "unmatched",
-          },
-        ],
-      };
-    }
-
-    const diffs = [];
-    for (const field of FIELD_DEFINITIONS) {
-      const originValue = origin[field.key];
-      const gainValue = match.deal[field.key];
-      if (!originValue) continue;
-
-      if (!gainValue) {
-        diffs.push({
-          key: field.key,
-          label: field.label,
-          originValue,
-          gainValue: "Blank",
-          status: "missing",
-        });
-      } else if (normaliseValue(originValue) !== normaliseValue(gainValue)) {
-        diffs.push({
-          key: field.key,
-          label: field.label,
-          originValue,
-          gainValue,
-          status: "conflict",
-        });
-      }
-    }
-
-    const hasConflict = diffs.some((diff) => diff.status === "conflict");
-    const hasMissing = diffs.some((diff) => diff.status === "missing");
-
-    return {
-      reviewId: `${origin.id}-${match.deal.id}`,
-      originId: origin.id,
-      gainId: match.deal.id,
-      target: origin.target || match.deal.target || "Unnamed target",
-      buyer: origin.buyer || match.deal.buyer || "Buyer not supplied",
-      completionDate:
-        origin.completionDate || match.deal.completionDate || "Date not supplied",
-      sourceType: origin.sourceType,
-      sourceDate: origin.sourceDate,
-      matchConfidence: match.confidence,
-      status: hasConflict ? "conflict" : hasMissing ? "missing" : "aligned",
-      diffs,
-    };
-  });
 }
 
 export function statusLabel(status) {

@@ -17,7 +17,7 @@ test("CSV parser handles quoted commas and canonical aliases", () => {
       '42,"Alpha, Systems",Acquirer,17-07-2026,"Advisor A, Advisor B"',
     ].join("\n"),
   );
-  const [deal] = canonicalise(rows);
+  const [deal] = canonicalise(rows, "origin");
   assert.equal(deal.id, "42");
   assert.equal(deal.target, "Alpha, Systems");
   assert.equal(deal.sourceDate, "17-07-2026");
@@ -43,9 +43,20 @@ test("rolling baseline excludes unchanged rows but includes updated and same-day
   );
 });
 
-test("Excel reader loads the first worksheet and returns row objects", async () => {
-  const sourceRows = [{ companyId: "42", target: "Excel Target" }];
-  const workbook = { SheetNames: ["Deals"], Sheets: { Deals: {} } };
+test("Excel reader finds an offset deal table and repairs an incomplete worksheet range", async () => {
+  const cover = [["Gain export overview"], ["Generated today"]];
+  const dealsSheet = [
+    ["General information", "", ""],
+    ["ID", "Deal target", "Buyers"],
+    ["42", "Excel Target", "Example Buyer"],
+  ];
+  const workbook = {
+    SheetNames: ["Overview", "Deals"],
+    Sheets: {
+      Overview: {},
+      Deals: { "!ref": "A1:C2", A1: {}, C3: {} },
+    },
+  };
   const xlsxApi = {
     read(buffer, options) {
       assert.ok(buffer instanceof ArrayBuffer);
@@ -54,9 +65,9 @@ test("Excel reader loads the first worksheet and returns row objects", async () 
     },
     utils: {
       sheet_to_json(sheet, options) {
-        assert.equal(sheet, workbook.Sheets.Deals);
-        assert.deepEqual(options, { defval: "", raw: false, blankrows: false });
-        return sourceRows;
+        assert.deepEqual(options, { header: 1, defval: "", raw: false, blankrows: true });
+        if (sheet === workbook.Sheets.Deals) assert.equal(sheet["!ref"], "A1:C3");
+        return sheet === workbook.Sheets.Overview ? cover : dealsSheet;
       },
     },
   };
@@ -65,7 +76,27 @@ test("Excel reader loads the first worksheet and returns row objects", async () 
     arrayBuffer: async () => new ArrayBuffer(8),
   };
 
-  assert.deepEqual(await readDealRows(file, xlsxApi), sourceRows);
+  assert.deepEqual(await readDealRows(file, xlsxApi), [
+    { ID: "42", "Deal target": "Excel Target", Buyers: "Example Buyer" },
+  ]);
+});
+
+test("public matcher selects the correct AEMtec Gain row", () => {
+  const [origin] = canonicalise(
+    [{ companyId: "2152", target: "AEMtec Group", announcedBuyer: "Micross Components", marketedEbitda: "15" }],
+    "origin",
+  );
+  const gain = canonicalise(
+    [
+      { "Deal ID": "10744399", "Target Asset ID": "2152", "Target name": "AEMtec Group", "EBITDA (EURm)": "12.815", "Suitors/bidders": "capiton" },
+      { "Deal ID": "10715032", "Target Asset ID": "2152", "Target name": "AEMtec Group", "EBITDA (EURm)": "15", "Suitors/bidders": "Micross Components" },
+    ],
+    "gain",
+  );
+  const [review] = createReviewQueue([origin], gain);
+
+  assert.equal(review.gainId, "10715032");
+  assert.match(review.matchReason, /Target Asset ID/);
 });
 
 test("comparison proposes blanks and locks conflicts", () => {
@@ -111,10 +142,13 @@ test("comparison proposes blanks and locks conflicts", () => {
 test("static HTML uses relative assets and makes no server API call", async () => {
   const html = await readFile(new URL("../docs/index.html", import.meta.url), "utf8");
   const app = await readFile(new URL("../docs/app.js", import.meta.url), "utf8");
+  const logic = await readFile(new URL("../docs/logic.mjs", import.meta.url), "utf8");
+  await readFile(new URL("../docs/deal-matcher.mjs", import.meta.url), "utf8");
   assert.match(html, /src="\.\/app\.js"/);
   assert.match(html, /src="\.\/xlsx\.full\.min\.js"/);
-  assert.match(html, /accept="\.csv,\.xlsx/);
+  assert.match(html, /accept="\.csv,\.xlsx,\.xls/);
   assert.match(html, /src="\.\/origin-logo\.png"/);
+  assert.match(logic, /\.\/deal-matcher\.mjs/);
   assert.doesNotMatch(app, /\bfetch\s*\(/);
   assert.doesNotMatch(app, /\/api\/origin-baseline/);
 });

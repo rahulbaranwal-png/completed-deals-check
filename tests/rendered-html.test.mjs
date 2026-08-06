@@ -79,17 +79,19 @@ test("finds the deal table when an Excel export has a cover sheet and offset hea
 
 test("keeps the starter preview removed and safety rules in the app", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const matcher = await readFile(new URL("../app/deal-matcher.ts", import.meta.url), "utf8");
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
 
   assert.match(page, /Add to blanks only/);
   assert.match(page, /Conflicts stay in review/);
-  assert.match(page, /No safe Gain match found/);
+  assert.match(page, /matchReason/);
+  assert.match(matcher, /No safe Gain match found/);
   assert.match(page, /sourceType/);
-  assert.match(page, /companyid/);
-  assert.match(page, /lastupdated/);
+  assert.match(matcher, /target_asset_id/);
+  assert.match(matcher, /lastupdated/);
   assert.match(page, /origin-baseline/);
   assert.match(page, /completeRunAndSaveBaseline/);
-  assert.match(page, /id: \["companyid",/);
+  assert.match(matcher, /companyId:/);
 });
 
 test("retains updated companies and unseen deals on the cutoff date", () => {
