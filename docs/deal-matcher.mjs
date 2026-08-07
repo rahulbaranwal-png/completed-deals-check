@@ -4,6 +4,9 @@ const FIELD_DEFINITIONS = [
     { key: "ebitda", label: "EBITDA" },
     { key: "stake", label: "Stake acquired" },
     { key: "advisers", label: "Advisers" },
+    { key: "buyerCandidates", label: "Suitors/bidders" },
+    { key: "launchDate", label: "Launch date" },
+    { key: "nboDeadline", label: "NBO deadline" },
     { key: "seller", label: "Seller" },
     { key: "completionDate", label: "Completion date" },
 ];
@@ -19,7 +22,18 @@ const ALIASES = {
     ],
     target: ["target", "target_name", "deal_target", "target_asset", "company", "asset", "target_company"],
     buyer: ["buyer", "buyers", "acquirer", "investor", "buyer_name", "announcedbuyer"],
-    buyerCandidates: ["suitors_bidders", "buyer_candidates", "bidders", "suitors"],
+    buyerCandidates: [
+        "suitors_bidders",
+        "buyer_candidates",
+        "bidders",
+        "suitors",
+        "firstroundbidders",
+        "first_round_bidders",
+        "secondroundbidders",
+        "second_round_bidders",
+        "exclusivitybidders",
+        "exclusivity_bidders",
+    ],
     seller: ["seller", "sellers", "vendor", "seller_name"],
     completionDate: ["completion_date", "completed_date", "close_date", "closed_date", "date"],
     launchDate: ["launch_date", "process_launch_date", "processlaunchdate"],
@@ -87,14 +101,17 @@ export function canonicalise(rows, source = "origin") {
         const companyId = pick(cleaned, ALIASES.companyId);
         const originator = pick(cleaned, ["originator"]);
         const suppliedSourceType = pick(cleaned, ALIASES.sourceType);
+        const buyer = pick(cleaned, ALIASES.buyer);
+        const buyerCandidates = pickMany(cleaned, ALIASES.buyerCandidates);
+        const combinedBuyerCandidates = appendUniqueListValues(buyerCandidates, buyer);
         return {
             id: (source === "origin" ? companyId || dealId || recordId : dealId || companyId || recordId) ||
                 `ROW-${index + 1}`,
             dealId,
             companyId,
             target: pick(cleaned, ALIASES.target),
-            buyer: pick(cleaned, ALIASES.buyer),
-            buyerCandidates: pick(cleaned, ALIASES.buyerCandidates),
+            buyer,
+            buyerCandidates: combinedBuyerCandidates,
             seller: pick(cleaned, ALIASES.seller),
             completionDate: pick(cleaned, ALIASES.completionDate),
             launchDate: pick(cleaned, ALIASES.launchDate),
@@ -139,7 +156,7 @@ function normaliseDate(value) {
     if (!text)
         return "";
     if (/^\d{5}(?:\.\d+)?$/.test(text)) {
-        const date = new Date(Date.UTC(1899, 11, 30) + Number(text) * 86400000);
+        const date = new Date(Date.UTC(1899, 11, 30) + Number(text) * 86_400_000);
         return date.toISOString().slice(0, 10);
     }
     const dayFirst = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
@@ -169,11 +186,11 @@ function numericValue(value) {
         return Number.NaN;
     let amount = Number(match[0]);
     if (/\b(bn|billion)\b/.test(text))
-        amount *= 1000;
+        amount *= 1_000;
     if (/\b(k|thousand)\b/.test(text))
-        amount /= 1000;
-    if (!/[a-z]/.test(text) && Math.abs(amount) >= 1000000)
-        amount /= 1000000;
+        amount /= 1_000;
+    if (!/[a-z]/.test(text) && Math.abs(amount) >= 1_000_000)
+        amount /= 1_000_000;
     return amount;
 }
 function numbersClose(left, right, tolerance = 0.03) {
@@ -193,6 +210,118 @@ function buyerMatches(origin, gain) {
         return true;
     const candidates = normaliseValue(gain.buyerCandidates);
     return originBuyer.length >= 4 && candidates.includes(originBuyer);
+}
+function splitNamedList(value, stripSquareAnnotations = false) {
+    const entries = String(value ?? "")
+        .split(/[;|]/)
+        .map((raw) => {
+        const trimmed = raw.trim();
+        const annotationMatch = trimmed.match(/\s*\(([^()]*)\)\s*$/);
+        const withoutRoundAnnotation = annotationMatch
+            ? trimmed.slice(0, annotationMatch.index).trim()
+            : trimmed;
+        const name = stripSquareAnnotations
+            ? withoutRoundAnnotation.replace(/\s*\[[^\]]*\]\s*$/g, "").trim()
+            : withoutRoundAnnotation;
+        return {
+            name,
+            key: normaliseName(name),
+            annotation: annotationMatch?.[1]?.trim() ?? "",
+        };
+    })
+        .filter((entry) => entry.name && entry.key.length >= 2);
+    const seen = new Set();
+    return entries.filter((entry) => {
+        if (seen.has(entry.key))
+            return false;
+        seen.add(entry.key);
+        return true;
+    });
+}
+function appendUniqueListValues(primary, extra) {
+    const entries = splitNamedList(`${primary}${primary && extra ? "; " : ""}${extra}`);
+    return entries
+        .map((entry) => `${entry.name}${entry.annotation ? ` (${entry.annotation})` : ""}`)
+        .join("; ");
+}
+function missingNamedEntries(originValue, gainValue, stripSquareAnnotations = false) {
+    const gainEntries = splitNamedList(gainValue, stripSquareAnnotations);
+    return splitNamedList(originValue, stripSquareAnnotations).filter((entry) => !gainEntries.some((gainEntry) => entityNamesEquivalent(entry, gainEntry)));
+}
+function entityCore(value) {
+    return String(value ?? "")
+        .toLowerCase()
+        .replace(/&/g, " and ")
+        .replace(/\b(pe)\b/g, " private equity ")
+        .split(/[^a-z0-9]+/)
+        .filter(Boolean)
+        .filter((token) => ![
+        "and",
+        "capital",
+        "company",
+        "equity",
+        "fund",
+        "group",
+        "holding",
+        "holdings",
+        "international",
+        "investment",
+        "investments",
+        "management",
+        "partners",
+        "private",
+        "technologies",
+    ].includes(token))
+        .join("");
+}
+function nameAcronym(value) {
+    return String(value ?? "")
+        .replace(/&/g, " ")
+        .split(/[^a-zA-Z0-9]+/)
+        .filter(Boolean)
+        .map((token) => token[0].toLowerCase())
+        .join("");
+}
+function looksLikeAcronym(value) {
+    const compact = String(value ?? "").replace(/[^a-zA-Z0-9]/g, "");
+    return compact.length >= 2 && compact.length <= 6 && compact === compact.toUpperCase();
+}
+function entityNamesEquivalent(left, right) {
+    if (left.key === right.key)
+        return true;
+    const shorter = left.key.length <= right.key.length ? left : right;
+    const longer = shorter === left ? right : left;
+    if ((shorter.key.length >= 5 || looksLikeAcronym(shorter.name)) &&
+        longer.key.includes(shorter.key)) {
+        return true;
+    }
+    const leftCore = entityCore(left.name);
+    const rightCore = entityCore(right.name);
+    if (leftCore.length >= 4 && leftCore === rightCore)
+        return true;
+    if (looksLikeAcronym(left.name) &&
+        left.key === nameAcronym(right.name)) {
+        return true;
+    }
+    if (looksLikeAcronym(right.name) &&
+        right.key === nameAcronym(left.name)) {
+        return true;
+    }
+    const longestLength = Math.max(left.key.length, right.key.length);
+    return (longestLength >= 8 &&
+        1 - levenshtein(left.key, right.key) / longestLength >= 0.9);
+}
+function listAdditionNote(entries, label) {
+    const stageEvidence = entries
+        .filter((entry) => entry.annotation)
+        .map((entry) => `${entry.name} (${entry.annotation})`)
+        .join("; ");
+    return [
+        `Append only; keep all existing Gain ${label}.`,
+        stageEvidence ? `Origin stage evidence: ${stageEvidence}.` : "",
+    ]
+        .filter(Boolean)
+        .join(" ");
 }
 function adviserOverlap(origin, gain) {
     const gainAdvisers = normaliseValue(gain.advisers);
@@ -225,8 +354,9 @@ function currencyCode(value) {
 function fieldValuesEquivalent(field, originValue, gainValue) {
     if (field === "advisers")
         return advisersCovered(originValue, gainValue);
-    if (field === "completionDate")
+    if (["completionDate", "launchDate", "nboDeadline"].includes(field)) {
         return sameDate(originValue, gainValue);
+    }
     if (["enterpriseValue", "revenue", "ebitda", "stake"].includes(field)) {
         const originCurrency = currencyCode(originValue);
         const gainCurrency = currencyCode(gainValue);
@@ -391,10 +521,28 @@ export function createReviewQueue(originDeals, gainDeals) {
         }
         const diffs = [];
         for (const field of FIELD_DEFINITIONS) {
-            const originValue = origin[field.key];
-            const gainValue = match.deal[field.key];
+            const originValue = origin[field.key] ?? "";
+            const gainValue = match.deal[field.key] ?? "";
             if (!originValue)
                 continue;
+            if (field.key === "buyerCandidates") {
+                const missingEntries = missingNamedEntries(originValue, gainValue);
+                if (missingEntries.length) {
+                    const proposedValue = missingEntries.map((entry) => entry.name).join("; ");
+                    diffs.push({
+                        key: field.key,
+                        label: field.label,
+                        originValue: proposedValue,
+                        gainValue: gainValue || "Blank",
+                        status: "missing",
+                        updateMode: gainValue ? "append" : "set",
+                        note: gainValue
+                            ? listAdditionNote(missingEntries, "suitors/bidders")
+                            : undefined,
+                    });
+                }
+                continue;
+            }
             if (!gainValue) {
                 diffs.push({
                     key: field.key,
@@ -402,6 +550,7 @@ export function createReviewQueue(originDeals, gainDeals) {
                     originValue,
                     gainValue: "Blank",
                     status: "missing",
+                    updateMode: "set",
                 });
             }
             else if (!fieldValuesEquivalent(field.key, originValue, gainValue)) {

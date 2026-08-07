@@ -82,8 +82,9 @@ test("keeps the starter preview removed and safety rules in the app", async () =
   const matcher = await readFile(new URL("../app/deal-matcher.ts", import.meta.url), "utf8");
   await assert.rejects(access(new URL("../app/_sites-preview/SkeletonPreview.tsx", import.meta.url)));
 
-  assert.match(page, /Add to blanks only/);
-  assert.match(page, /Conflicts stay in review/);
+  assert.match(page, /Safe additions only/);
+  assert.match(page, /append-only/);
+  assert.match(page, /Existing Gain values are never overwritten/);
   assert.match(page, /matchReason/);
   assert.match(matcher, /No safe Gain match found/);
   assert.match(page, /sourceType/);

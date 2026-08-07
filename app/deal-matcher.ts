@@ -6,7 +6,7 @@ export type CanonicalDeal = {
   companyId?: string;
   target: string;
   buyer: string;
-  buyerCandidates?: string;
+  buyerCandidates: string;
   seller: string;
   completionDate: string;
   launchDate?: string;
@@ -26,6 +26,9 @@ export type FieldKey =
   | "ebitda"
   | "stake"
   | "advisers"
+  | "buyerCandidates"
+  | "launchDate"
+  | "nboDeadline"
   | "seller"
   | "completionDate";
 
@@ -35,6 +38,8 @@ export type FieldDiff = {
   originValue: string;
   gainValue: string;
   status: "missing" | "conflict" | "unmatched";
+  updateMode?: "set" | "append";
+  note?: string;
 };
 
 export type ReviewDeal = {
@@ -80,6 +85,9 @@ const FIELD_DEFINITIONS: Array<{ key: FieldKey; label: string }> = [
   { key: "ebitda", label: "EBITDA" },
   { key: "stake", label: "Stake acquired" },
   { key: "advisers", label: "Advisers" },
+  { key: "buyerCandidates", label: "Suitors/bidders" },
+  { key: "launchDate", label: "Launch date" },
+  { key: "nboDeadline", label: "NBO deadline" },
   { key: "seller", label: "Seller" },
   { key: "completionDate", label: "Completion date" },
 ];
@@ -96,7 +104,18 @@ const ALIASES = {
   ],
   target: ["target", "target_name", "deal_target", "target_asset", "company", "asset", "target_company"],
   buyer: ["buyer", "buyers", "acquirer", "investor", "buyer_name", "announcedbuyer"],
-  buyerCandidates: ["suitors_bidders", "buyer_candidates", "bidders", "suitors"],
+  buyerCandidates: [
+    "suitors_bidders",
+    "buyer_candidates",
+    "bidders",
+    "suitors",
+    "firstroundbidders",
+    "first_round_bidders",
+    "secondroundbidders",
+    "second_round_bidders",
+    "exclusivitybidders",
+    "exclusivity_bidders",
+  ],
   seller: ["seller", "sellers", "vendor", "seller_name"],
   completionDate: ["completion_date", "completed_date", "close_date", "closed_date", "date"],
   launchDate: ["launch_date", "process_launch_date", "processlaunchdate"],
@@ -182,6 +201,9 @@ export function canonicalise(rows: RawRow[], source: "origin" | "gain" = "origin
     const companyId = pick(cleaned, ALIASES.companyId);
     const originator = pick(cleaned, ["originator"]);
     const suppliedSourceType = pick(cleaned, ALIASES.sourceType);
+    const buyer = pick(cleaned, ALIASES.buyer);
+    const buyerCandidates = pickMany(cleaned, ALIASES.buyerCandidates);
+    const combinedBuyerCandidates = appendUniqueListValues(buyerCandidates, buyer);
 
     return {
       id:
@@ -190,8 +212,8 @@ export function canonicalise(rows: RawRow[], source: "origin" | "gain" = "origin
       dealId,
       companyId,
       target: pick(cleaned, ALIASES.target),
-      buyer: pick(cleaned, ALIASES.buyer),
-      buyerCandidates: pick(cleaned, ALIASES.buyerCandidates),
+      buyer,
+      buyerCandidates: combinedBuyerCandidates,
       seller: pick(cleaned, ALIASES.seller),
       completionDate: pick(cleaned, ALIASES.completionDate),
       launchDate: pick(cleaned, ALIASES.launchDate),
@@ -298,6 +320,146 @@ function buyerMatches(origin: CanonicalDeal, gain: CanonicalDeal) {
   return originBuyer.length >= 4 && candidates.includes(originBuyer);
 }
 
+type NamedListEntry = {
+  name: string;
+  key: string;
+  annotation: string;
+};
+
+function splitNamedList(value: string, stripSquareAnnotations = false): NamedListEntry[] {
+  const entries = String(value ?? "")
+    .split(/[;|]/)
+    .map((raw) => {
+      const trimmed = raw.trim();
+      const annotationMatch = trimmed.match(/\s*\(([^()]*)\)\s*$/);
+      const withoutRoundAnnotation = annotationMatch
+        ? trimmed.slice(0, annotationMatch.index).trim()
+        : trimmed;
+      const name = stripSquareAnnotations
+        ? withoutRoundAnnotation.replace(/\s*\[[^\]]*\]\s*$/g, "").trim()
+        : withoutRoundAnnotation;
+      return {
+        name,
+        key: normaliseName(name),
+        annotation: annotationMatch?.[1]?.trim() ?? "",
+      };
+    })
+    .filter((entry) => entry.name && entry.key.length >= 2);
+
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    if (seen.has(entry.key)) return false;
+    seen.add(entry.key);
+    return true;
+  });
+}
+
+function appendUniqueListValues(primary: string, extra: string) {
+  const entries = splitNamedList(`${primary}${primary && extra ? "; " : ""}${extra}`);
+  return entries
+    .map((entry) => `${entry.name}${entry.annotation ? ` (${entry.annotation})` : ""}`)
+    .join("; ");
+}
+
+function missingNamedEntries(originValue: string, gainValue: string, stripSquareAnnotations = false) {
+  const gainEntries = splitNamedList(gainValue, stripSquareAnnotations);
+  return splitNamedList(originValue, stripSquareAnnotations).filter(
+    (entry) => !gainEntries.some((gainEntry) => entityNamesEquivalent(entry, gainEntry)),
+  );
+}
+
+function entityCore(value: string) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/\b(pe)\b/g, " private equity ")
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .filter(
+      (token) =>
+        ![
+          "and",
+          "capital",
+          "company",
+          "equity",
+          "fund",
+          "group",
+          "holding",
+          "holdings",
+          "international",
+          "investment",
+          "investments",
+          "management",
+          "partners",
+          "private",
+          "technologies",
+        ].includes(token),
+    )
+    .join("");
+}
+
+function nameAcronym(value: string) {
+  return String(value ?? "")
+    .replace(/&/g, " ")
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map((token) => token[0].toLowerCase())
+    .join("");
+}
+
+function looksLikeAcronym(value: string) {
+  const compact = String(value ?? "").replace(/[^a-zA-Z0-9]/g, "");
+  return compact.length >= 2 && compact.length <= 6 && compact === compact.toUpperCase();
+}
+
+function entityNamesEquivalent(left: NamedListEntry, right: NamedListEntry) {
+  if (left.key === right.key) return true;
+  const shorter = left.key.length <= right.key.length ? left : right;
+  const longer = shorter === left ? right : left;
+  if (
+    (shorter.key.length >= 5 || looksLikeAcronym(shorter.name)) &&
+    longer.key.includes(shorter.key)
+  ) {
+    return true;
+  }
+
+  const leftCore = entityCore(left.name);
+  const rightCore = entityCore(right.name);
+  if (leftCore.length >= 4 && leftCore === rightCore) return true;
+
+  if (
+    looksLikeAcronym(left.name) &&
+    left.key === nameAcronym(right.name)
+  ) {
+    return true;
+  }
+  if (
+    looksLikeAcronym(right.name) &&
+    right.key === nameAcronym(left.name)
+  ) {
+    return true;
+  }
+
+  const longestLength = Math.max(left.key.length, right.key.length);
+  return (
+    longestLength >= 8 &&
+    1 - levenshtein(left.key, right.key) / longestLength >= 0.9
+  );
+}
+
+function listAdditionNote(entries: NamedListEntry[], label: string) {
+  const stageEvidence = entries
+    .filter((entry) => entry.annotation)
+    .map((entry) => `${entry.name} (${entry.annotation})`)
+    .join("; ");
+  return [
+    `Append only; keep all existing Gain ${label}.`,
+    stageEvidence ? `Origin stage evidence: ${stageEvidence}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 function adviserOverlap(origin: CanonicalDeal, gain: CanonicalDeal) {
   const gainAdvisers = normaliseValue(gain.advisers);
   if (!gainAdvisers) return false;
@@ -327,7 +489,9 @@ function currencyCode(value: string) {
 
 function fieldValuesEquivalent(field: FieldKey, originValue: string, gainValue: string) {
   if (field === "advisers") return advisersCovered(originValue, gainValue);
-  if (field === "completionDate") return sameDate(originValue, gainValue);
+  if (["completionDate", "launchDate", "nboDeadline"].includes(field)) {
+    return sameDate(originValue, gainValue);
+  }
   if (["enterpriseValue", "revenue", "ebitda", "stake"].includes(field)) {
     const originCurrency = currencyCode(originValue);
     const gainCurrency = currencyCode(gainValue);
@@ -518,9 +682,28 @@ export function createReviewQueue(originDeals: CanonicalDeal[], gainDeals: Canon
 
     const diffs: FieldDiff[] = [];
     for (const field of FIELD_DEFINITIONS) {
-      const originValue = origin[field.key];
-      const gainValue = match.deal[field.key];
+      const originValue = origin[field.key] ?? "";
+      const gainValue = match.deal[field.key] ?? "";
       if (!originValue) continue;
+
+      if (field.key === "buyerCandidates") {
+        const missingEntries = missingNamedEntries(originValue, gainValue);
+        if (missingEntries.length) {
+          const proposedValue = missingEntries.map((entry) => entry.name).join("; ");
+          diffs.push({
+            key: field.key,
+            label: field.label,
+            originValue: proposedValue,
+            gainValue: gainValue || "Blank",
+            status: "missing",
+            updateMode: gainValue ? "append" : "set",
+            note: gainValue
+              ? listAdditionNote(missingEntries, "suitors/bidders")
+              : undefined,
+          });
+        }
+        continue;
+      }
 
       if (!gainValue) {
         diffs.push({
@@ -529,6 +712,7 @@ export function createReviewQueue(originDeals: CanonicalDeal[], gainDeals: Canon
           originValue,
           gainValue: "Blank",
           status: "missing",
+          updateMode: "set",
         });
       } else if (!fieldValuesEquivalent(field.key, originValue, gainValue)) {
         diffs.push({

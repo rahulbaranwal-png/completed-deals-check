@@ -67,6 +67,86 @@ test("AEMtec Group selects the correct Gain deal from two rows for the same asse
   assert.equal(review.diffs.some((diff) => diff.key === "advisers"), false);
 });
 
+test("ATOZ flags missing Origin bidders as append-only and keeps adviser differences in review", () => {
+  const [origin] = canonicalise(
+    [
+      {
+        companyId: "2494624",
+        target: "ATOZ",
+        announcedBuyer: "Bregal Sagemount",
+        sellSideAdvisors: "Baird",
+        buySideAdvisors: "Lincoln",
+        marketedEbitda: "22",
+        enterpriseValue: "330",
+        nboDeadline: "2026-07-01",
+        suitors:
+          "Eurazeo (R1) | Bregal Sagemount (R1, Exclusivity, Announced) | HIG (R1) | Pollen Street (R1) | Cobepa (R1)",
+        firstRoundBidders: "Cobepa | Eurazeo | Bregal Sagemount | Pollen Street | HIG",
+      },
+    ],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [
+      {
+        "Deal ID": "10802447",
+        "Target Asset ID": "2494624",
+        "Target name": "ATOZ",
+        "EBITDA (EURm)": "22",
+        "Advisors (all)":
+          "Baird [sell-side]; Goodwin Procter [buy-side]; A&O Shearman [sell-side]",
+        "NBO deadline": "2026-07-01T00:00:00.000Z",
+        "Suitors/bidders": "Cobepa; Bregal Sagemount; Eurazeo",
+        "Bidder stage": "NBO; Buyer; Suitor",
+      },
+    ],
+    "gain",
+  );
+
+  const [review] = createReviewQueue([origin], [gain]);
+  const bidders = review.diffs.find((diff) => diff.key === "buyerCandidates");
+  const advisers = review.diffs.find((diff) => diff.key === "advisers");
+
+  assert.equal(review.gainId, "10802447");
+  assert.equal(bidders?.status, "missing");
+  assert.equal(bidders?.updateMode, "append");
+  assert.equal(bidders?.originValue, "HIG; Pollen Street");
+  assert.equal(bidders?.gainValue, "Cobepa; Bregal Sagemount; Eurazeo");
+  assert.match(bidders?.note ?? "", /HIG \(R1\)/);
+  assert.match(bidders?.note ?? "", /Pollen Street \(R1\)/);
+  assert.equal(advisers?.status, "conflict");
+  assert.equal(advisers?.updateMode, undefined);
+  assert.match(advisers?.originValue ?? "", /Lincoln/);
+  assert.equal(review.diffs.some((diff) => diff.key === "nboDeadline"), false);
+});
+
+test("known expanded bidder names are not reported as missing list items", () => {
+  const [origin] = canonicalise(
+    [
+      {
+        companyId: "2152",
+        target: "AEMtec Group",
+        suitors: "DPE (R1) | Bregal (R1)",
+      },
+    ],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [
+      {
+        "Deal ID": "10715032",
+        "Target Asset ID": "2152",
+        "Target name": "AEMtec Group",
+        "Suitors/bidders": "Deutsche Private Equity; Bregal Unternehmerkapital",
+      },
+    ],
+    "gain",
+  );
+  const [review] = createReviewQueue([origin], [gain]);
+
+  assert.equal(review.diffs.some((diff) => diff.key === "buyerCandidates"), false);
+});
+
 test("a unique exact target name matches even when IDs and buyer are unavailable", () => {
   const [origin] = canonicalise([{ companyId: "42", target: "Alpha Group" }], "origin");
   const [gain] = canonicalise([{ "Deal ID": "900", "Target name": "Alpha Group" }], "gain");

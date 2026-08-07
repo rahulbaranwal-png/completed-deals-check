@@ -243,8 +243,17 @@ export default function Home() {
   const filteredReviews = useMemo(() => {
     const query = search.trim().toLowerCase();
     return reviews.filter((deal) => {
-      const filterMatch = filter === "all" || deal.status === filter;
-      const searchMatch = !query || `${deal.target} ${deal.buyer} ${deal.originId} ${deal.gainId}`.toLowerCase().includes(query);
+      const filterMatch =
+        filter === "all" ||
+        (filter === "missing"
+          ? deal.diffs.some((diff) => diff.status === "missing")
+          : filter === "conflict"
+            ? deal.diffs.some((diff) => diff.status === "conflict")
+            : deal.status === filter);
+      const diffSearchText = deal.diffs
+        .map((diff) => `${diff.label} ${diff.originValue} ${diff.gainValue}`)
+        .join(" ");
+      const searchMatch = !query || `${deal.target} ${deal.buyer} ${deal.originId} ${deal.gainId} ${diffSearchText}`.toLowerCase().includes(query);
       return filterMatch && searchMatch;
     });
   }, [filter, reviews, search]);
@@ -385,12 +394,12 @@ export default function Home() {
       });
     });
     setApproved(next);
-    setNotice("All safe blank-field additions have been approved for export.");
+    setNotice("All safe blank-field and append-only additions have been approved for export.");
   }
 
   function exportPatch() {
     const rows: Array<Array<string | number>> = [
-      ["gain_deal_id", "origin_deal_id", "target", "field", "current_gain_value", "proposed_value", "source_type", "source_date", "match_confidence"],
+      ["gain_deal_id", "origin_deal_id", "target", "field", "update_mode", "current_gain_value", "proposed_value", "notes", "source_type", "source_date", "match_confidence"],
     ];
 
     reviews.forEach((deal) => {
@@ -401,8 +410,10 @@ export default function Home() {
             deal.originId,
             deal.target,
             diff.label,
+            diff.updateMode || "set",
             diff.gainValue,
             diff.originValue,
+            diff.note || "",
             deal.sourceType,
             deal.sourceDate,
             deal.matchConfidence,
@@ -452,8 +463,8 @@ export default function Home() {
           </p>
         </div>
         <div className="rule-note">
-          <strong>Add to blanks only</strong>
-          <span>Existing Gain values are never overwritten. Conflicts stay in review.</span>
+          <strong>Safe additions only</strong>
+          <span>Blank fields can be set; missing list items are append-only. Existing Gain values are never overwritten.</span>
         </div>
       </section>
 
@@ -618,7 +629,7 @@ export default function Home() {
               <div className="comparison-heading">
                 <div>
                   <h3>Field comparison</h3>
-                  <p>Approve safe blank-field additions. Conflicts remain locked for a manual decision.</p>
+                  <p>Approve blank fields or append missing list items. Conflicts remain locked for a manual decision.</p>
                 </div>
                 <button className="button button-quiet" type="button" onClick={approveAllSafe}>Approve all safe</button>
               </div>
@@ -635,10 +646,13 @@ export default function Home() {
                       <div className="field-name">
                         <span className={`status-dot status-${diff.status}`} />
                         <strong>{diff.label}</strong>
-                        <small>{diff.status === "missing" ? "Missing on Gain" : diff.status === "conflict" ? "Values differ" : "No safe match"}</small>
+                        <small>{diff.status === "missing" ? (diff.updateMode === "append" ? "Missing from Gain list" : "Missing on Gain") : diff.status === "conflict" ? "Values differ" : "No safe match"}</small>
                       </div>
-                      <div className="value-cell origin-value">{diff.originValue}</div>
-                      <div className={diff.status === "missing" ? "value-cell blank-value" : "value-cell"}>{diff.gainValue}</div>
+                      <div className="value-cell origin-value">
+                        <span>{diff.originValue}</span>
+                        {diff.note && <small className="diff-note">{diff.note}</small>}
+                      </div>
+                      <div className={diff.status === "missing" && diff.gainValue === "Blank" ? "value-cell blank-value" : "value-cell"}>{diff.gainValue}</div>
                       <div>
                         {diff.status === "missing" ? (
                           <button
@@ -647,7 +661,7 @@ export default function Home() {
                             onClick={() => toggleApproval(selected, diff)}
                             aria-pressed={isApproved}
                           >
-                            {isApproved ? "Approved" : "Approve add"}
+                            {isApproved ? "Approved" : diff.updateMode === "append" ? "Approve append" : "Approve add"}
                           </button>
                         ) : (
                           <span className="locked-decision">Manual review</span>

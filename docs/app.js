@@ -239,10 +239,19 @@ function metrics() {
 function filteredReviews() {
   const query = state.search.trim().toLowerCase();
   return state.reviews.filter((deal) => {
-    const filterMatch = state.filter === "all" || deal.status === state.filter;
+    const filterMatch =
+      state.filter === "all" ||
+      (state.filter === "missing"
+        ? deal.diffs.some((diff) => diff.status === "missing")
+        : state.filter === "conflict"
+          ? deal.diffs.some((diff) => diff.status === "conflict")
+          : deal.status === state.filter);
+    const diffSearchText = deal.diffs
+      .map((diff) => `${diff.label} ${diff.originValue} ${diff.gainValue}`)
+      .join(" ");
     const searchMatch =
       !query ||
-      `${deal.target} ${deal.buyer} ${deal.originId} ${deal.gainId}`
+      `${deal.target} ${deal.buyer} ${deal.originId} ${deal.gainId} ${diffSearchText}`
         .toLowerCase()
         .includes(query);
     return filterMatch && searchMatch;
@@ -359,15 +368,15 @@ function renderDetail() {
             '<div class="field-name">' +
             `<span class="status-dot status-${diff.status}"></span>` +
             `<strong>${escapeHtml(diff.label)}</strong>` +
-            `<small>${diff.status === "missing" ? "Missing on Gain" : diff.status === "conflict" ? "Values differ" : "No safe match"}</small>` +
+            `<small>${diff.status === "missing" ? (diff.updateMode === "append" ? "Missing from Gain list" : "Missing on Gain") : diff.status === "conflict" ? "Values differ" : "No safe match"}</small>` +
             "</div>" +
-            `<div class="value-cell origin-value">${escapeHtml(diff.originValue)}</div>` +
-            `<div class="value-cell${diff.status === "missing" ? " blank-value" : ""}">${escapeHtml(diff.gainValue)}</div>` +
+            `<div class="value-cell origin-value"><span>${escapeHtml(diff.originValue)}</span>${diff.note ? `<small class="diff-note">${escapeHtml(diff.note)}</small>` : ""}</div>` +
+            `<div class="value-cell${diff.status === "missing" && diff.gainValue === "Blank" ? " blank-value" : ""}">${escapeHtml(diff.gainValue)}</div>` +
             "<div>" +
             (diff.status === "missing"
               ? `<button class="approval-button${isApproved ? " approved" : ""}" type="button" ` +
                 `data-approval-key="${escapeHtml(approvalKey)}" aria-pressed="${isApproved}">` +
-                `${isApproved ? "Approved" : "Approve add"}</button>`
+                `${isApproved ? "Approved" : diff.updateMode === "append" ? "Approve append" : "Approve add"}</button>`
               : '<span class="locked-decision">Manual review</span>') +
             "</div></div>"
           );
@@ -391,7 +400,7 @@ function renderDetail() {
     "<div><span>Workflow</span><strong>Reviewer approval required</strong></div>" +
     "</div>" +
     '<div class="comparison-heading"><div><h3>Field comparison</h3>' +
-    "<p>Approve safe blank-field additions. Conflicts remain locked for a manual decision.</p></div>" +
+    "<p>Approve blank fields or append missing list items. Conflicts remain locked for a manual decision.</p></div>" +
     '<button class="button button-quiet" id="approve-all-safe" type="button">Approve all safe</button></div>' +
     '<div class="comparison-table" role="table" aria-label="Field comparison">' +
     '<div class="comparison-row comparison-labels" role="row"><span>Field</span><span>Origin value</span><span>Current Gain value</span><span>Decision</span></div>' +
@@ -505,7 +514,7 @@ function approveAllSafe() {
       }
     });
   });
-  state.notice = "All safe blank-field additions have been approved for export.";
+  state.notice = "All safe blank-field and append-only additions have been approved for export.";
   renderAll();
 }
 

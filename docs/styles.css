@@ -268,7 +268,8 @@ button { color: inherit; }
 .field-name strong { font-size: 11px; }
 .field-name small { grid-column: 2; color: var(--muted); font-size: 9px; margin-top: 3px; }
 .value-cell { min-height: 48px; padding: 10px; border: 1px solid #e1e5df; border-radius: 9px; background: #fafbf9; font-size: 10px; line-height: 1.45; display: flex; align-items: center; overflow-wrap: anywhere; }
-.origin-value { border-color: #c2dfd3; background: #eff8f4; }
+.origin-value { border-color: #c2dfd3; background: #eff8f4; align-items: flex-start; flex-direction: column; gap: 5px; }
+.diff-note { color: var(--muted); font-size: 9px; line-height: 1.4; }
 .blank-value { color: #9aa39f; background: repeating-linear-gradient(135deg, #f8f9f7, #f8f9f7 5px, #f1f3ef 5px, #f1f3ef 10px); }
 .approval-button { width: 100%; border: 1px solid #c4b5fd; border-radius: 8px; background: white; color: var(--purple); padding: 9px 8px; font-size: 9px; font-weight: 800; cursor: pointer; }
 .approval-button.approved { background: var(--purple); border-color: var(--purple); color: white; }

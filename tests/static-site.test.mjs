@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  buildPatchCsv,
   canonicalise,
   createBaseline,
   createReviewQueue,
@@ -99,6 +100,44 @@ test("public matcher selects the correct AEMtec Gain row", () => {
   assert.match(review.matchReason, /Target Asset ID/);
 });
 
+test("public matcher and patch export preserve Gain bidders while appending ATOZ omissions", () => {
+  const [origin] = canonicalise(
+    [
+      {
+        companyId: "2494624",
+        target: "ATOZ",
+        announcedBuyer: "Bregal Sagemount",
+        suitors:
+          "Eurazeo (R1) | Bregal Sagemount (R1, Exclusivity, Announced) | HIG (R1) | Pollen Street (R1) | Cobepa (R1)",
+      },
+    ],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [
+      {
+        "Deal ID": "10802447",
+        "Target Asset ID": "2494624",
+        "Target name": "ATOZ",
+        "Suitors/bidders": "Cobepa; Bregal Sagemount; Eurazeo",
+      },
+    ],
+    "gain",
+  );
+  const [review] = createReviewQueue([origin], [gain]);
+  const bidders = review.diffs.find((diff) => diff.key === "buyerCandidates");
+  const csv = buildPatchCsv(
+    [review],
+    new Set([`${review.reviewId}:buyerCandidates`]),
+  );
+
+  assert.equal(bidders?.originValue, "HIG; Pollen Street");
+  assert.equal(bidders?.updateMode, "append");
+  assert.match(csv, /Suitors\/bidders,append/);
+  assert.match(csv, /Cobepa; Bregal Sagemount; Eurazeo/);
+  assert.match(csv, /HIG; Pollen Street/);
+});
+
 test("comparison proposes blanks and locks conflicts", () => {
   const origin = [
     {
@@ -149,6 +188,7 @@ test("static HTML uses relative assets and makes no server API call", async () =
   assert.match(html, /accept="\.csv,\.xlsx,\.xls/);
   assert.match(html, /src="\.\/origin-logo\.png"/);
   assert.match(logic, /\.\/deal-matcher\.mjs/);
+  assert.match(app, /deal\.diffs\.some\(\(diff\) => diff\.status === "missing"\)/);
   assert.doesNotMatch(app, /\bfetch\s*\(/);
   assert.doesNotMatch(app, /\/api\/origin-baseline/);
 });
