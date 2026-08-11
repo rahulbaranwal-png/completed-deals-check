@@ -7,6 +7,7 @@ const FIELD_DEFINITIONS = [
     { key: "buyerCandidates", label: "Suitors/bidders" },
     { key: "launchDate", label: "Launch date" },
     { key: "nboDeadline", label: "NBO deadline" },
+    { key: "boDeadline", label: "BO deadline" },
     { key: "seller", label: "Seller" },
     { key: "completionDate", label: "Completion date" },
 ];
@@ -23,6 +24,7 @@ const ALIASES = {
     target: ["target", "target_name", "deal_target", "target_asset", "company", "asset", "target_company"],
     buyer: ["buyer", "buyers", "acquirer", "investor", "buyer_name", "announcedbuyer"],
     buyerCandidates: [
+        "bidder_names",
         "suitors_bidders",
         "buyer_candidates",
         "bidders",
@@ -38,9 +40,10 @@ const ALIASES = {
     completionDate: ["completion_date", "completed_date", "close_date", "closed_date", "date"],
     launchDate: ["launch_date", "process_launch_date", "processlaunchdate"],
     nboDeadline: ["nbo_deadline", "nbodeadline"],
-    enterpriseValue: ["enterprise_value", "deal_value", "ev", "transaction_value", "ev_eurm"],
-    revenue: ["revenue", "revenue_eurm", "sales", "target_revenue", "marketedrevenue"],
-    ebitda: ["ebitda", "ebitda_eurm", "target_ebitda", "marketedebitda"],
+    boDeadline: ["bo_deadline", "bodeadline"],
+    enterpriseValue: ["enterprise_value", "enterprisevalue", "deal_value", "ev", "transaction_value", "ev_eur", "ev_eurm"],
+    revenue: ["revenue", "revenue_eur", "revenue_eurm", "sales", "target_revenue", "marketedrevenue"],
+    ebitda: ["ebitda", "ebitda_eur", "ebitda_eurm", "target_ebitda", "marketedebitda"],
     stake: ["stake", "stake_acquired", "percentage_acquired", "ownership"],
     advisers: [
         "advisers",
@@ -54,7 +57,7 @@ const ALIASES = {
         "buy_side_advisors",
     ],
     sourceType: ["source_type", "source", "intelligence_type", "provenance"],
-    sourceDate: ["source_date", "intelligence_date", "updated_at", "last_updated", "lastupdated"],
+    sourceDate: ["source_date", "intelligence_date", "publication_date", "updated_at", "last_updated", "lastupdated"],
 };
 export function normaliseHeader(value) {
     return value
@@ -72,13 +75,14 @@ export function normaliseValue(value) {
         .replace(/[^a-z0-9]/g, "");
 }
 export function normaliseName(value) {
-    return normaliseValue(String(value ?? "").replace(/\b(group|holdings?|limited|ltd|incorporated|inc|plc|llc|gmbh|ag|sarl|sas|bv|nv|spa|srl)\b/gi, ""));
+    return normaliseValue(String(value ?? "").replace(/\b(group|holdings?|company|co|corporation|corp|limited|ltd|incorporated|inc|plc|llc|gmbh|ag|sarl|sas|bv|nv|spa|srl)\b/gi, ""));
 }
 function pick(row, aliases) {
     for (const alias of aliases) {
         const value = row[alias];
-        if (value !== undefined && value !== null)
-            return String(value).trim();
+        const text = String(value ?? "").trim();
+        if (text)
+            return text;
     }
     return "";
 }
@@ -116,6 +120,7 @@ export function canonicalise(rows, source = "origin") {
             completionDate: pick(cleaned, ALIASES.completionDate),
             launchDate: pick(cleaned, ALIASES.launchDate),
             nboDeadline: pick(cleaned, ALIASES.nboDeadline),
+            boDeadline: pick(cleaned, ALIASES.boDeadline),
             enterpriseValue: pick(cleaned, ALIASES.enterpriseValue),
             revenue: pick(cleaned, ALIASES.revenue),
             ebitda: pick(cleaned, ALIASES.ebitda),
@@ -257,8 +262,10 @@ function entityCore(value) {
         .filter(Boolean)
         .filter((token) => ![
         "and",
-        "capital",
-        "company",
+            "capital",
+            "company",
+            "corporation",
+            "corp",
         "equity",
         "fund",
         "group",
@@ -354,7 +361,7 @@ function currencyCode(value) {
 function fieldValuesEquivalent(field, originValue, gainValue) {
     if (field === "advisers")
         return advisersCovered(originValue, gainValue);
-    if (["completionDate", "launchDate", "nboDeadline"].includes(field)) {
+    if (["completionDate", "launchDate", "nboDeadline", "boDeadline"].includes(field)) {
         return sameDate(originValue, gainValue);
     }
     if (["enterpriseValue", "revenue", "ebitda", "stake"].includes(field)) {
@@ -395,6 +402,10 @@ function scoreCandidate(origin, gain, kind) {
     if (sameDate(origin.nboDeadline, gain.nboDeadline)) {
         score += 7;
         evidence.push("NBO deadline");
+    }
+    if (sameDate(origin.boDeadline, gain.boDeadline)) {
+        score += 7;
+        evidence.push("BO deadline");
     }
     if (numbersClose(origin.ebitda, gain.ebitda)) {
         score += 10;

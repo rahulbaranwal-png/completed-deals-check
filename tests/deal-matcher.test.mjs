@@ -202,3 +202,115 @@ test("similar names are suggested but never auto-matched", () => {
   assert.equal(review.matchConfidence, 0);
   assert.match(review.diffs[0].gainValue, /Alpha Systems/);
 });
+
+test("current Gain snake-case export headers map bidders and financial fields", () => {
+  const [gain] = canonicalise(
+    [
+      {
+        deal_id: "10668632",
+        company_id: "554",
+        asset: "Funeral Partners",
+        publication_date: "2026-08-06T11:38:50Z",
+        revenue_eur: "109.5055034",
+        ebitda_eur: "23.7242446",
+        ev_eur: "233.7364",
+        advisors_all: "HSBC [sell-side]",
+        bo_deadline: "2026-06-16T00:00:00Z",
+        bidder_names: "Duke Street; Sereni Group",
+        bidder_stages: "Suitor; Buyer",
+      },
+    ],
+    "gain",
+  );
+
+  assert.equal(gain.buyerCandidates, "Duke Street; Sereni Group");
+  assert.equal(gain.revenue, "109.5055034");
+  assert.equal(gain.ebitda, "23.7242446");
+  assert.equal(gain.enterpriseValue, "233.7364");
+  assert.equal(gain.boDeadline, "2026-06-16T00:00:00Z");
+  assert.equal(gain.sourceDate, "2026-08-06T11:38:50Z");
+});
+
+test("current Gain bidder_names prevents false additions for Funeral Partners", () => {
+  const [origin] = canonicalise(
+    [
+      {
+        companyId: "554",
+        target: "Funeral Partners",
+        suitors: "Sereni Group (Announced) | Sereni | Duke Street (R2)",
+        secondRoundBidders: "Duke Street",
+        announcedBuyer: "Sereni Group",
+      },
+    ],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [
+      {
+        deal_id: "10668632",
+        company_id: "554",
+        asset: "Funeral Partners",
+        bidder_names: "Duke Street; Sereni Group",
+        bidder_stages: "Suitor; Buyer",
+      },
+    ],
+    "gain",
+  );
+
+  const [review] = createReviewQueue([origin], [gain]);
+  assert.equal(review.gainId, "10668632");
+  assert.equal(review.diffs.some((diff) => diff.key === "buyerCandidates"), false);
+});
+
+test("expanded Gain bidder names prevent false additions for FNZ Bank Deutschland", () => {
+  const [origin] = canonicalise(
+    [
+      {
+        companyId: "Parent - 3180",
+        target: "FNZ Bank Deutschland",
+        suitors:
+          "Brookfield (R1) | Advent (R1) | HarbourVest Partners (Announced) | Advent International (Announced)",
+        firstRoundBidders: "Advent | Brookfield",
+        announcedBuyer: "Advent International | HarbourVest Partners",
+      },
+    ],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [
+      {
+        deal_id: "10701193",
+        company_id: "940587",
+        asset: "FNZ Bank Deutschland",
+        bidder_names: "Advent International; Brookfield Asset Management; HarbourVest Partners",
+        bidder_stages: "Buyer; BO; Buyer",
+      },
+    ],
+    "gain",
+  );
+
+  const [review] = createReviewQueue([origin], [gain]);
+  assert.equal(review.gainId, "10701193");
+  assert.equal(review.diffs.some((diff) => diff.key === "buyerCandidates"), false);
+});
+
+test("legal entity suffixes do not create false bidder additions", () => {
+  const [origin] = canonicalise(
+    [{ companyId: "99", target: "Suffix Target", suitors: "ORIX Corporation (Announced)" }],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [{ deal_id: "900", company_id: "99", asset: "Suffix Target", bidder_names: "ORIX Group" }],
+    "gain",
+  );
+  const [review] = createReviewQueue([origin], [gain]);
+  assert.equal(review.diffs.some((diff) => diff.key === "buyerCandidates"), false);
+});
+
+test("blank earlier aliases do not hide populated fallback values", () => {
+  const [origin] = canonicalise(
+    [{ target: "Fallback Buyer Target", buyer: "", announcedBuyer: "Sereni Group" }],
+    "origin",
+  );
+  assert.equal(origin.buyer, "Sereni Group");
+});
