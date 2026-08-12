@@ -270,17 +270,19 @@ test("Origin and Gain financial-year columns are canonicalised and equivalent FY
   assert.equal(gain.ebitdaFinancialYear, "FY25");
 
   const [review] = createReviewQueue([origin], [gain]);
-  assert.equal(review.diffs.some((diff) => diff.key === "revenueFinancialYear"), false);
-  assert.equal(review.diffs.some((diff) => diff.key === "ebitdaFinancialYear"), false);
+  assert.equal(review.diffs.some((diff) => diff.key === "revenue"), false);
+  assert.equal(review.diffs.some((diff) => diff.key === "ebitda"), false);
 });
 
-test("missing financial years are safe additions while differing years remain conflicts", () => {
+test("financial years appear inside Revenue and EBITDA rather than separate rows", () => {
   const [origin] = canonicalise(
     [
       {
         companyId: "43",
         target: "Financial year review target",
+        marketedRevenue: "100",
         marketedRevenuePeriod: "FY2024",
+        marketedEbitda: "20",
         marketedEbitdaPeriod: "FY2025E",
       },
     ],
@@ -292,7 +294,9 @@ test("missing financial years are safe additions while differing years remain co
         deal_id: "901",
         company_id: "43",
         asset: "Financial year review target",
+        revenue_eur: "100",
         revenue_period: "",
+        ebitda_eur: "20",
         ebitda_year: "2025A",
       },
     ],
@@ -300,35 +304,59 @@ test("missing financial years are safe additions while differing years remain co
   );
 
   const [review] = createReviewQueue([origin], [gain]);
-  const revenueYear = review.diffs.find((diff) => diff.key === "revenueFinancialYear");
-  const ebitdaYear = review.diffs.find((diff) => diff.key === "ebitdaFinancialYear");
+  const revenue = review.diffs.find((diff) => diff.key === "revenue");
+  const ebitda = review.diffs.find((diff) => diff.key === "ebitda");
 
-  assert.equal(revenueYear?.label, "Revenue financial year");
-  assert.equal(revenueYear?.originValue, "FY2024");
-  assert.equal(revenueYear?.gainValue, "Blank");
-  assert.equal(revenueYear?.status, "missing");
-  assert.equal(revenueYear?.updateMode, "set");
-  assert.equal(ebitdaYear?.label, "EBITDA financial year");
-  assert.equal(ebitdaYear?.status, "conflict");
+  assert.equal(revenue?.label, "Revenue");
+  assert.equal(revenue?.originValue, "100 (FY2024)");
+  assert.equal(revenue?.gainValue, "100 (FY blank)");
+  assert.equal(revenue?.status, "missing");
+  assert.equal(revenue?.updateMode, "set");
+  assert.match(revenue?.note ?? "", /without changing the amount/);
+  assert.equal(ebitda?.label, "EBITDA");
+  assert.equal(ebitda?.originValue, "20 (FY2025E)");
+  assert.equal(ebitda?.gainValue, "20 (FY2025A)");
+  assert.equal(ebitda?.status, "conflict");
+  assert.equal(review.diffs.some((diff) => /financial year/i.test(diff.label)), false);
 });
 
-test("an omitted Gain financial-year column is flagged as unavailable, not safely blank", () => {
+test("an omitted Gain financial-year column is flagged inside Revenue", () => {
   const [origin] = canonicalise(
-    [{ companyId: "44", target: "Schema guard target", marketedRevenuePeriod: "FY2024" }],
+    [{ companyId: "44", target: "Schema guard target", marketedRevenue: "100", marketedRevenuePeriod: "FY2024" }],
     "origin",
   );
   const [gain] = canonicalise(
-    [{ deal_id: "902", company_id: "44", asset: "Schema guard target" }],
+    [{ deal_id: "902", company_id: "44", asset: "Schema guard target", revenue_eur: "100" }],
     "gain",
   );
 
   const [review] = createReviewQueue([origin], [gain]);
-  const revenueYear = review.diffs.find((diff) => diff.key === "revenueFinancialYear");
+  const revenue = review.diffs.find((diff) => diff.key === "revenue");
 
-  assert.equal(revenueYear?.gainValue, "Column not supplied");
-  assert.equal(revenueYear?.status, "conflict");
-  assert.equal(revenueYear?.updateMode, undefined);
-  assert.match(revenueYear?.note ?? "", /revenue_period/);
+  assert.equal(revenue?.originValue, "100 (FY2024)");
+  assert.equal(revenue?.gainValue, "100 (FY column not supplied)");
+  assert.equal(revenue?.status, "conflict");
+  assert.equal(revenue?.updateMode, undefined);
+  assert.match(revenue?.note ?? "", /revenue_period/);
+});
+
+test("a missing Revenue amount remains addable with its financial year inline", () => {
+  const [origin] = canonicalise(
+    [{ companyId: "45", target: "Blank revenue target", marketedRevenue: "75", marketedRevenuePeriod: "FY2023" }],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [{ deal_id: "903", company_id: "45", asset: "Blank revenue target", revenue_eur: "", revenue_period: "" }],
+    "gain",
+  );
+
+  const [review] = createReviewQueue([origin], [gain]);
+  const revenue = review.diffs.find((diff) => diff.key === "revenue");
+
+  assert.equal(revenue?.originValue, "75 (FY2023)");
+  assert.equal(revenue?.gainValue, "Blank");
+  assert.equal(revenue?.status, "missing");
+  assert.equal(revenue?.updateMode, "set");
 });
 
 test("current Gain bidder_names prevents false additions for Funeral Partners", () => {

@@ -28,9 +28,7 @@ export type CanonicalDeal = {
 export type FieldKey =
   | "enterpriseValue"
   | "revenue"
-  | "revenueFinancialYear"
   | "ebitda"
-  | "ebitdaFinancialYear"
   | "stake"
   | "advisers"
   | "buyerCandidates"
@@ -90,9 +88,7 @@ type GainIndex = {
 const FIELD_DEFINITIONS: Array<{ key: FieldKey; label: string }> = [
   { key: "enterpriseValue", label: "Enterprise value" },
   { key: "revenue", label: "Revenue" },
-  { key: "revenueFinancialYear", label: "Revenue financial year" },
   { key: "ebitda", label: "EBITDA" },
-  { key: "ebitdaFinancialYear", label: "EBITDA financial year" },
   { key: "stake", label: "Stake acquired" },
   { key: "advisers", label: "Advisers" },
   { key: "buyerCandidates", label: "Suitors/bidders" },
@@ -580,11 +576,128 @@ function normaliseFinancialYear(value: string) {
   return `${year}${match[2]}`;
 }
 
+function financialYearDisplay(value: string) {
+  const normalised = normaliseFinancialYear(value);
+  if (!normalised) return "";
+  return /^\d{4}[A-Z]*$/.test(normalised)
+    ? `FY${normalised}`
+    : String(value ?? "").trim();
+}
+
+function financialValueDisplay(
+  amount: string,
+  year: string,
+  yearColumnSupplied: boolean | undefined,
+  showYearState: boolean,
+) {
+  if (!amount) return year ? `Blank (${financialYearDisplay(year)})` : "Blank";
+  if (year) return `${amount} (${financialYearDisplay(year)})`;
+  if (!showYearState) return amount;
+  return yearColumnSupplied === false
+    ? `${amount} (FY column not supplied)`
+    : `${amount} (FY blank)`;
+}
+
+function financialFieldDiff(
+  field: { key: "revenue" | "ebitda"; label: string },
+  origin: CanonicalDeal,
+  gain: CanonicalDeal,
+): FieldDiff | null {
+  const originAmount = origin[field.key];
+  if (!originAmount) return null;
+
+  const isRevenue = field.key === "revenue";
+  const originYear = isRevenue ? origin.revenueFinancialYear ?? "" : origin.ebitdaFinancialYear ?? "";
+  const gainYear = isRevenue ? gain.revenueFinancialYear ?? "" : gain.ebitdaFinancialYear ?? "";
+  const gainYearColumnSupplied = isRevenue
+    ? gain.revenueFinancialYearSupplied
+    : gain.ebitdaFinancialYearSupplied;
+  const gainAmount = gain[field.key];
+  const showYearState = Boolean(originYear);
+  const originDisplay = financialValueDisplay(originAmount, originYear, true, showYearState);
+  const gainDisplay = financialValueDisplay(gainAmount, gainYear, gainYearColumnSupplied, showYearState);
+  const requestedColumn = isRevenue ? "revenue_period" : "ebitda_year";
+  const yearLabel = financialYearDisplay(originYear);
+
+  if (!gainAmount) {
+    const gainHasConflictingYear = Boolean(originYear && gainYear)
+      && normaliseFinancialYear(originYear) !== normaliseFinancialYear(gainYear);
+    if (gainHasConflictingYear) {
+      return {
+        key: field.key,
+        label: field.label,
+        originValue: originDisplay,
+        gainValue: gainDisplay,
+        status: "conflict",
+        note: `${field.label} is blank, but its financial year differs. Keep for review and do not overwrite Gain.`,
+      };
+    }
+
+    return {
+      key: field.key,
+      label: field.label,
+      originValue: originDisplay,
+      gainValue: gainDisplay,
+      status: "missing",
+      updateMode: "set",
+      note: originYear && gainYearColumnSupplied === false
+        ? `${field.label} is blank in Gain. Add the amount only; ${requestedColumn} was not supplied, so verify ${yearLabel} before adding the financial year.`
+        : originYear
+          ? `Add ${field.label} together with ${yearLabel}.`
+          : undefined,
+    };
+  }
+
+  if (!fieldValuesEquivalent(field.key, originAmount, gainAmount)) {
+    return {
+      key: field.key,
+      label: field.label,
+      originValue: originDisplay,
+      gainValue: gainDisplay,
+      status: "conflict",
+      note: originYear
+        ? `${field.label} and its financial year are reviewed together; existing Gain values are not overwritten.`
+        : undefined,
+    };
+  }
+
+  if (!originYear) return null;
+  if (gainYearColumnSupplied === false) {
+    return {
+      key: field.key,
+      label: field.label,
+      originValue: originDisplay,
+      gainValue: gainDisplay,
+      status: "conflict",
+      note: `${field.label} amount matches, but ${requestedColumn} was not supplied in the Gain export. Verify the financial year before updating.`,
+    };
+  }
+  if (!gainYear) {
+    return {
+      key: field.key,
+      label: field.label,
+      originValue: originDisplay,
+      gainValue: gainDisplay,
+      status: "missing",
+      updateMode: "set",
+      note: `${field.label} amount already matches. Add ${yearLabel} without changing the amount.`,
+    };
+  }
+  if (normaliseFinancialYear(originYear) !== normaliseFinancialYear(gainYear)) {
+    return {
+      key: field.key,
+      label: field.label,
+      originValue: originDisplay,
+      gainValue: gainDisplay,
+      status: "conflict",
+      note: `${field.label} amount matches, but the financial year differs. Keep for review and do not overwrite Gain.`,
+    };
+  }
+  return null;
+}
+
 function fieldValuesEquivalent(field: FieldKey, originValue: string, gainValue: string) {
   if (field === "advisers") return advisersCovered(originValue, gainValue);
-  if (["revenueFinancialYear", "ebitdaFinancialYear"].includes(field)) {
-    return normaliseFinancialYear(originValue) === normaliseFinancialYear(gainValue);
-  }
   if (["completionDate", "launchDate", "nboDeadline", "boDeadline"].includes(field)) {
     return sameDate(originValue, gainValue);
   }
@@ -786,6 +899,16 @@ export function createReviewQueue(originDeals: CanonicalDeal[], gainDeals: Canon
       const gainValue = match.deal[field.key] ?? "";
       if (!originValue) continue;
 
+      if (field.key === "revenue" || field.key === "ebitda") {
+        const financialDiff = financialFieldDiff(
+          { key: field.key, label: field.label },
+          origin,
+          match.deal,
+        );
+        if (financialDiff) diffs.push(financialDiff);
+        continue;
+      }
+
       if (field.key === "buyerCandidates") {
         const missingEntries = missingNamedEntries(originValue, gainValue);
         if (missingEntries.length) {
@@ -802,24 +925,6 @@ export function createReviewQueue(originDeals: CanonicalDeal[], gainDeals: Canon
               : undefined,
           });
         }
-        continue;
-      }
-
-      const financialYearColumnSupplied = field.key === "revenueFinancialYear"
-        ? match.deal.revenueFinancialYearSupplied
-        : field.key === "ebitdaFinancialYear"
-          ? match.deal.ebitdaFinancialYearSupplied
-          : undefined;
-      if (financialYearColumnSupplied === false) {
-        const requestedColumn = field.key === "revenueFinancialYear" ? "revenue_period" : "ebitda_year";
-        diffs.push({
-          key: field.key,
-          label: field.label,
-          originValue,
-          gainValue: "Column not supplied",
-          status: "conflict",
-          note: `Add ${requestedColumn} to the Gain export before deciding whether this value is missing.`,
-        });
         continue;
       }
 

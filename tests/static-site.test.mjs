@@ -144,7 +144,9 @@ test("public matcher compares revenue and EBITDA financial years without false F
       {
         companyId: "42",
         target: "Financial year target",
+        marketedRevenue: "100",
         marketedRevenuePeriod: "FY24",
+        marketedEbitda: "20",
         marketedEbitdaPeriod: "FY2025E",
       },
     ],
@@ -156,7 +158,9 @@ test("public matcher compares revenue and EBITDA financial years without false F
         deal_id: "900",
         company_id: "42",
         asset: "Financial year target",
+        revenue_eur: "100",
         revenue_period: "2024",
+        ebitda_eur: "20",
         ebitda_year: "2025A",
       },
     ],
@@ -164,25 +168,30 @@ test("public matcher compares revenue and EBITDA financial years without false F
   );
   const [review] = createReviewQueue([origin], [gain]);
 
-  assert.equal(review.diffs.some((diff) => diff.key === "revenueFinancialYear"), false);
-  assert.equal(review.diffs.find((diff) => diff.key === "ebitdaFinancialYear")?.status, "conflict");
+  assert.equal(review.diffs.some((diff) => diff.key === "revenue"), false);
+  const ebitda = review.diffs.find((diff) => diff.key === "ebitda");
+  assert.equal(ebitda?.originValue, "20 (FY2025E)");
+  assert.equal(ebitda?.gainValue, "20 (FY2025A)");
+  assert.equal(ebitda?.status, "conflict");
+  assert.equal(review.diffs.some((diff) => /financial year/i.test(diff.label)), false);
 });
 
-test("public matcher does not treat an omitted Gain financial-year column as a safe blank", () => {
+test("public matcher reports an omitted Gain financial-year column inside Revenue", () => {
   const [origin] = canonicalise(
-    [{ companyId: "43", target: "FY schema target", marketedRevenuePeriod: "FY2024" }],
+    [{ companyId: "43", target: "FY schema target", marketedRevenue: "100", marketedRevenuePeriod: "FY2024" }],
     "origin",
   );
   const [gain] = canonicalise(
-    [{ deal_id: "901", company_id: "43", asset: "FY schema target" }],
+    [{ deal_id: "901", company_id: "43", asset: "FY schema target", revenue_eur: "100" }],
     "gain",
   );
   const [review] = createReviewQueue([origin], [gain]);
-  const revenueYear = review.diffs.find((diff) => diff.key === "revenueFinancialYear");
+  const revenue = review.diffs.find((diff) => diff.key === "revenue");
 
-  assert.equal(revenueYear?.gainValue, "Column not supplied");
-  assert.equal(revenueYear?.status, "conflict");
-  assert.match(revenueYear?.note ?? "", /revenue_period/);
+  assert.equal(revenue?.originValue, "100 (FY2024)");
+  assert.equal(revenue?.gainValue, "100 (FY column not supplied)");
+  assert.equal(revenue?.status, "conflict");
+  assert.match(revenue?.note ?? "", /revenue_period/);
 });
 
 test("comparison proposes blanks and locks conflicts", () => {
