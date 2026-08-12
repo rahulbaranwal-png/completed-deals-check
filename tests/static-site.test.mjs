@@ -138,6 +138,53 @@ test("public matcher and patch export preserve Gain bidders while appending ATOZ
   assert.match(csv, /HIG; Pollen Street/);
 });
 
+test("public matcher compares revenue and EBITDA financial years without false FY-format conflicts", () => {
+  const [origin] = canonicalise(
+    [
+      {
+        companyId: "42",
+        target: "Financial year target",
+        marketedRevenuePeriod: "FY24",
+        marketedEbitdaPeriod: "FY2025E",
+      },
+    ],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [
+      {
+        deal_id: "900",
+        company_id: "42",
+        asset: "Financial year target",
+        revenue_period: "2024",
+        ebitda_year: "2025A",
+      },
+    ],
+    "gain",
+  );
+  const [review] = createReviewQueue([origin], [gain]);
+
+  assert.equal(review.diffs.some((diff) => diff.key === "revenueFinancialYear"), false);
+  assert.equal(review.diffs.find((diff) => diff.key === "ebitdaFinancialYear")?.status, "conflict");
+});
+
+test("public matcher does not treat an omitted Gain financial-year column as a safe blank", () => {
+  const [origin] = canonicalise(
+    [{ companyId: "43", target: "FY schema target", marketedRevenuePeriod: "FY2024" }],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [{ deal_id: "901", company_id: "43", asset: "FY schema target" }],
+    "gain",
+  );
+  const [review] = createReviewQueue([origin], [gain]);
+  const revenueYear = review.diffs.find((diff) => diff.key === "revenueFinancialYear");
+
+  assert.equal(revenueYear?.gainValue, "Column not supplied");
+  assert.equal(revenueYear?.status, "conflict");
+  assert.match(revenueYear?.note ?? "", /revenue_period/);
+});
+
 test("comparison proposes blanks and locks conflicts", () => {
   const origin = [
     {

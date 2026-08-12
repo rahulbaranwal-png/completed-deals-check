@@ -212,7 +212,9 @@ test("current Gain snake-case export headers map bidders and financial fields", 
         asset: "Funeral Partners",
         publication_date: "2026-08-06T11:38:50Z",
         revenue_eur: "109.5055034",
+        revenue_period: "FY24",
         ebitda_eur: "23.7242446",
+        ebitda_year: "2024",
         ev_eur: "233.7364",
         advisors_all: "HSBC [sell-side]",
         bo_deadline: "2026-06-16T00:00:00Z",
@@ -225,10 +227,108 @@ test("current Gain snake-case export headers map bidders and financial fields", 
 
   assert.equal(gain.buyerCandidates, "Duke Street; Sereni Group");
   assert.equal(gain.revenue, "109.5055034");
+  assert.equal(gain.revenueFinancialYear, "FY24");
   assert.equal(gain.ebitda, "23.7242446");
+  assert.equal(gain.ebitdaFinancialYear, "2024");
   assert.equal(gain.enterpriseValue, "233.7364");
   assert.equal(gain.boDeadline, "2026-06-16T00:00:00Z");
   assert.equal(gain.sourceDate, "2026-08-06T11:38:50Z");
+});
+
+test("Origin and Gain financial-year columns are canonicalised and equivalent FY formats align", () => {
+  const [origin] = canonicalise(
+    [
+      {
+        companyId: "42",
+        target: "Financial year target",
+        marketedRevenue: "100",
+        marketedRevenuePeriod: "FY24",
+        marketedEbitda: "20",
+        marketedEbitdaPeriod: "Financial year 2025",
+      },
+    ],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [
+      {
+        deal_id: "900",
+        company_id: "42",
+        asset: "Financial year target",
+        revenue_eur: "100",
+        revenue_period: "2024",
+        ebitda_eur: "20",
+        ebitda_year: "FY25",
+      },
+    ],
+    "gain",
+  );
+
+  assert.equal(origin.revenueFinancialYear, "FY24");
+  assert.equal(origin.ebitdaFinancialYear, "Financial year 2025");
+  assert.equal(gain.revenueFinancialYear, "2024");
+  assert.equal(gain.ebitdaFinancialYear, "FY25");
+
+  const [review] = createReviewQueue([origin], [gain]);
+  assert.equal(review.diffs.some((diff) => diff.key === "revenueFinancialYear"), false);
+  assert.equal(review.diffs.some((diff) => diff.key === "ebitdaFinancialYear"), false);
+});
+
+test("missing financial years are safe additions while differing years remain conflicts", () => {
+  const [origin] = canonicalise(
+    [
+      {
+        companyId: "43",
+        target: "Financial year review target",
+        marketedRevenuePeriod: "FY2024",
+        marketedEbitdaPeriod: "FY2025E",
+      },
+    ],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [
+      {
+        deal_id: "901",
+        company_id: "43",
+        asset: "Financial year review target",
+        revenue_period: "",
+        ebitda_year: "2025A",
+      },
+    ],
+    "gain",
+  );
+
+  const [review] = createReviewQueue([origin], [gain]);
+  const revenueYear = review.diffs.find((diff) => diff.key === "revenueFinancialYear");
+  const ebitdaYear = review.diffs.find((diff) => diff.key === "ebitdaFinancialYear");
+
+  assert.equal(revenueYear?.label, "Revenue financial year");
+  assert.equal(revenueYear?.originValue, "FY2024");
+  assert.equal(revenueYear?.gainValue, "Blank");
+  assert.equal(revenueYear?.status, "missing");
+  assert.equal(revenueYear?.updateMode, "set");
+  assert.equal(ebitdaYear?.label, "EBITDA financial year");
+  assert.equal(ebitdaYear?.status, "conflict");
+});
+
+test("an omitted Gain financial-year column is flagged as unavailable, not safely blank", () => {
+  const [origin] = canonicalise(
+    [{ companyId: "44", target: "Schema guard target", marketedRevenuePeriod: "FY2024" }],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [{ deal_id: "902", company_id: "44", asset: "Schema guard target" }],
+    "gain",
+  );
+
+  const [review] = createReviewQueue([origin], [gain]);
+  const revenueYear = review.diffs.find((diff) => diff.key === "revenueFinancialYear");
+
+  assert.equal(revenueYear?.gainValue, "Column not supplied");
+  assert.equal(revenueYear?.status, "conflict");
+  assert.equal(revenueYear?.updateMode, undefined);
+  assert.match(revenueYear?.note ?? "", /revenue_period/);
 });
 
 test("current Gain bidder_names prevents false additions for Funeral Partners", () => {

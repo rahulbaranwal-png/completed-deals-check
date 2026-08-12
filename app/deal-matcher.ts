@@ -14,7 +14,11 @@ export type CanonicalDeal = {
   boDeadline?: string;
   enterpriseValue: string;
   revenue: string;
+  revenueFinancialYear?: string;
+  revenueFinancialYearSupplied?: boolean;
   ebitda: string;
+  ebitdaFinancialYear?: string;
+  ebitdaFinancialYearSupplied?: boolean;
   stake: string;
   advisers: string;
   sourceType: string;
@@ -24,7 +28,9 @@ export type CanonicalDeal = {
 export type FieldKey =
   | "enterpriseValue"
   | "revenue"
+  | "revenueFinancialYear"
   | "ebitda"
+  | "ebitdaFinancialYear"
   | "stake"
   | "advisers"
   | "buyerCandidates"
@@ -84,7 +90,9 @@ type GainIndex = {
 const FIELD_DEFINITIONS: Array<{ key: FieldKey; label: string }> = [
   { key: "enterpriseValue", label: "Enterprise value" },
   { key: "revenue", label: "Revenue" },
+  { key: "revenueFinancialYear", label: "Revenue financial year" },
   { key: "ebitda", label: "EBITDA" },
+  { key: "ebitdaFinancialYear", label: "EBITDA financial year" },
   { key: "stake", label: "Stake acquired" },
   { key: "advisers", label: "Advisers" },
   { key: "buyerCandidates", label: "Suitors/bidders" },
@@ -135,7 +143,39 @@ const ALIASES = {
     "ev_eurm",
   ],
   revenue: ["revenue", "revenue_eur", "revenue_eurm", "sales", "target_revenue", "marketedrevenue"],
+  revenueFinancialYear: [
+    "marketedrevenueperiod",
+    "marketed_revenue_period",
+    "marketedrevenueyear",
+    "marketed_revenue_year",
+    "revenue_financial_year",
+    "revenuefinancialyear",
+    "revenue_fiscal_year",
+    "revenuefiscalyear",
+    "revenue_fy",
+    "revenuefy",
+    "revenue_year",
+    "revenueyear",
+    "revenue_period",
+    "revenueperiod",
+  ],
   ebitda: ["ebitda", "ebitda_eur", "ebitda_eurm", "target_ebitda", "marketedebitda"],
+  ebitdaFinancialYear: [
+    "marketedebitdaperiod",
+    "marketed_ebitda_period",
+    "marketedebitdayear",
+    "marketed_ebitda_year",
+    "ebitda_financial_year",
+    "ebitdafinancialyear",
+    "ebitda_fiscal_year",
+    "ebitdafiscalyear",
+    "ebitda_fy",
+    "ebitdafy",
+    "ebitda_year",
+    "ebitdayear",
+    "ebitda_period",
+    "ebitdaperiod",
+  ],
   stake: ["stake", "stake_acquired", "percentage_acquired", "ownership"],
   advisers: [
     "advisers",
@@ -204,6 +244,10 @@ function pickMany(row: RawRow, aliases: string[]) {
   ).join("; ");
 }
 
+function hasAnyAlias(row: RawRow, aliases: string[]) {
+  return aliases.some((alias) => Object.prototype.hasOwnProperty.call(row, alias));
+}
+
 export function canonicalise(rows: RawRow[], source: "origin" | "gain" = "origin"): CanonicalDeal[] {
   return rows.map((row, index) => {
     const normalised = Object.fromEntries(
@@ -242,7 +286,11 @@ export function canonicalise(rows: RawRow[], source: "origin" | "gain" = "origin
       boDeadline: pick(cleaned, ALIASES.boDeadline),
       enterpriseValue: pick(cleaned, ALIASES.enterpriseValue),
       revenue: pick(cleaned, ALIASES.revenue),
+      revenueFinancialYear: pick(cleaned, ALIASES.revenueFinancialYear),
+      revenueFinancialYearSupplied: hasAnyAlias(cleaned, ALIASES.revenueFinancialYear),
       ebitda: pick(cleaned, ALIASES.ebitda),
+      ebitdaFinancialYear: pick(cleaned, ALIASES.ebitdaFinancialYear),
+      ebitdaFinancialYearSupplied: hasAnyAlias(cleaned, ALIASES.ebitdaFinancialYear),
       stake: pick(cleaned, ALIASES.stake),
       advisers: pickMany(cleaned, ALIASES.advisers),
       sourceType:
@@ -511,8 +559,32 @@ function currencyCode(value: string) {
   return "";
 }
 
+function normaliseFinancialYear(value: string) {
+  let text = String(value ?? "")
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+
+  text = text
+    .replace(/^(?:FINANCIALYEAR|FISCALYEAR|FY)/, "")
+    .replace(/FY$/, "");
+
+  const match = /^(\d{2}|\d{4})([A-Z]*)$/.exec(text);
+  if (!match) return text;
+
+  const year = match[1].length === 2
+    ? String(Number(match[1]) >= 50 ? 1900 + Number(match[1]) : 2000 + Number(match[1]))
+    : match[1];
+  return `${year}${match[2]}`;
+}
+
 function fieldValuesEquivalent(field: FieldKey, originValue: string, gainValue: string) {
   if (field === "advisers") return advisersCovered(originValue, gainValue);
+  if (["revenueFinancialYear", "ebitdaFinancialYear"].includes(field)) {
+    return normaliseFinancialYear(originValue) === normaliseFinancialYear(gainValue);
+  }
   if (["completionDate", "launchDate", "nboDeadline", "boDeadline"].includes(field)) {
     return sameDate(originValue, gainValue);
   }
@@ -730,6 +802,24 @@ export function createReviewQueue(originDeals: CanonicalDeal[], gainDeals: Canon
               : undefined,
           });
         }
+        continue;
+      }
+
+      const financialYearColumnSupplied = field.key === "revenueFinancialYear"
+        ? match.deal.revenueFinancialYearSupplied
+        : field.key === "ebitdaFinancialYear"
+          ? match.deal.ebitdaFinancialYearSupplied
+          : undefined;
+      if (financialYearColumnSupplied === false) {
+        const requestedColumn = field.key === "revenueFinancialYear" ? "revenue_period" : "ebitda_year";
+        diffs.push({
+          key: field.key,
+          label: field.label,
+          originValue,
+          gainValue: "Column not supplied",
+          status: "conflict",
+          note: `Add ${requestedColumn} to the Gain export before deciding whether this value is missing.`,
+        });
         continue;
       }
 
