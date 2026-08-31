@@ -110,7 +110,15 @@ const ALIASES = {
     "asset_id",
   ],
   target: ["target", "target_name", "deal_target", "target_asset", "company", "asset", "target_company"],
-  buyer: ["buyer", "buyers", "acquirer", "investor", "buyer_name", "announcedbuyer"],
+  buyer: [
+    "buyer",
+    "buyers",
+    "acquirer",
+    "investor",
+    "buyer_name",
+    "announcedbuyer",
+    "announced_buyer",
+  ],
   buyerCandidates: [
     "bidder_names",
     "suitors_bidders",
@@ -181,8 +189,12 @@ const ALIASES = {
     "financial_advisors",
     "sellsideadvisors",
     "sell_side_advisors",
+    "sellsideadvisers",
+    "sell_side_advisers",
     "buysideadvisors",
     "buy_side_advisors",
+    "buysideadvisers",
+    "buy_side_advisers",
   ],
   sourceType: ["source_type", "source", "intelligence_type", "provenance"],
   sourceDate: [
@@ -192,6 +204,8 @@ const ALIASES = {
     "updated_at",
     "last_updated",
     "lastupdated",
+    "current_lastupdated",
+    "current_last_updated",
   ],
 };
 
@@ -799,6 +813,9 @@ export function matchGainDeal(
   const top = scored[0];
 
   if (scored.length === 1) {
+    if (kind === "company" && !top.evidence.includes("exact target name") && !top.buyerMatch && !top.dateMatch) {
+      return null;
+    }
     const confidence =
       kind === "company" ? 98 : top.buyerMatch ? 96 : top.dateMatch ? 94 : 92;
     return { deal: top.deal, confidence, reason: top.evidence.join(" + ") };

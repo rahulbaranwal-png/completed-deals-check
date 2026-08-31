@@ -442,3 +442,49 @@ test("blank earlier aliases do not hide populated fallback values", () => {
   );
   assert.equal(origin.buyer, "Sereni Group");
 });
+
+test("25 Aug spaced headers disambiguate ScioTeq and Ardentis historical Gain rows", () => {
+  const origin = canonicalise(
+    [
+      {
+        "Company ID": "15457",
+        Target: "ScioTeq",
+        "Announced buyer": "Tikehau Capital",
+        "Sell-side advisers": "",
+      },
+      {
+        "Company ID": "25551",
+        Target: "Ardentis Cliniques Dentaires et d'Orthodontie",
+        "Announced buyer": "Migros Group",
+        "Sell-side advisers": "UBS",
+      },
+    ],
+    "origin",
+  );
+  const gain = canonicalise(
+    [
+      { "#deal_id": "10826881", target_asset_id: "15457", target_name: "ScioTeq" },
+      { "#deal_id": "10638783", target_asset_id: "15457", target_name: "ScioTeq", suitors_bidders: "Tikehau Capital" },
+      { "#deal_id": "50276", target_asset_id: "15457", target_name: "ScioTeq", suitors_bidders: "OpenGate Capital" },
+      { "#deal_id": "10825820", target_asset_id: "25551", target_name: "Ardentis Cliniques Dentaires et d'Orthodontie", suitors_bidders: "Migros Group", advisors: "UBS Investment Bank" },
+      { "#deal_id": "10558959", target_asset_id: "25551", target_name: "Ardentis Cliniques Dentaires et d'Orthodontie", suitors_bidders: "Columna Capital" },
+    ],
+    "gain",
+  );
+
+  assert.equal(origin[0].buyer, "Tikehau Capital");
+  assert.equal(origin[1].buyer, "Migros Group");
+  assert.equal(origin[1].advisers, "UBS");
+  assert.equal(matchGainDeal(origin[0], gain)?.deal.dealId, "10638783");
+  assert.equal(matchGainDeal(origin[1], gain)?.deal.dealId, "10825820");
+});
+
+test("a reused company ID does not auto-match a different target without corroboration", () => {
+  const [origin] = canonicalise([{ "Company ID": "1058963", Target: "Oxane" }], "origin");
+  const [gain] = canonicalise(
+    [{ "#deal_id": "10791184", target_asset_id: "1058963", target_name: "Different Target" }],
+    "gain",
+  );
+
+  assert.equal(matchGainDeal(origin, [gain]), null);
+});

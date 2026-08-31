@@ -234,6 +234,28 @@ test("comparison proposes blanks and locks conflicts", () => {
   assert.equal(review.diffs.find((diff) => diff.key === "ebitda")?.status, "conflict");
 });
 
+test("public matcher reads spaced announced-buyer headers from the 25 Aug export", () => {
+  const origin = canonicalise(
+    [
+      { "Company ID": "15457", Target: "ScioTeq", "Announced buyer": "Tikehau Capital" },
+      { "Company ID": "25551", Target: "Ardentis Cliniques Dentaires et d'Orthodontie", "Announced buyer": "Migros Group" },
+    ],
+    "origin",
+  );
+  const gain = canonicalise(
+    [
+      { "#deal_id": "10826881", target_asset_id: "15457", target_name: "ScioTeq" },
+      { "#deal_id": "10638783", target_asset_id: "15457", target_name: "ScioTeq", suitors_bidders: "Tikehau Capital" },
+      { "#deal_id": "10825820", target_asset_id: "25551", target_name: "Ardentis Cliniques Dentaires et d'Orthodontie", suitors_bidders: "Migros Group" },
+      { "#deal_id": "10558959", target_asset_id: "25551", target_name: "Ardentis Cliniques Dentaires et d'Orthodontie", suitors_bidders: "Columna Capital" },
+    ],
+    "gain",
+  );
+  const reviews = createReviewQueue(origin, gain);
+
+  assert.deepEqual(reviews.map((review) => review.gainId), ["10638783", "10825820"]);
+});
+
 test("static HTML uses relative assets and makes no server API call", async () => {
   const html = await readFile(new URL("../docs/index.html", import.meta.url), "utf8");
   const app = await readFile(new URL("../docs/app.js", import.meta.url), "utf8");
