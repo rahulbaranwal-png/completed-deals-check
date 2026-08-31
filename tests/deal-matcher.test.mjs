@@ -227,10 +227,13 @@ test("current Gain snake-case export headers map bidders and financial fields", 
 
   assert.equal(gain.buyerCandidates, "Duke Street; Sereni Group");
   assert.equal(gain.revenue, "109.5055034");
+  assert.equal(gain.revenueCurrency, "EUR");
   assert.equal(gain.revenueFinancialYear, "FY24");
   assert.equal(gain.ebitda, "23.7242446");
+  assert.equal(gain.ebitdaCurrency, "EUR");
   assert.equal(gain.ebitdaFinancialYear, "2024");
   assert.equal(gain.enterpriseValue, "233.7364");
+  assert.equal(gain.enterpriseValueCurrency, "EUR");
   assert.equal(gain.boDeadline, "2026-06-16T00:00:00Z");
   assert.equal(gain.sourceDate, "2026-08-06T11:38:50Z");
 });
@@ -308,14 +311,14 @@ test("financial years appear inside Revenue and EBITDA rather than separate rows
   const ebitda = review.diffs.find((diff) => diff.key === "ebitda");
 
   assert.equal(revenue?.label, "Revenue");
-  assert.equal(revenue?.originValue, "100 (FY2024)");
-  assert.equal(revenue?.gainValue, "100 (FY blank)");
+  assert.equal(revenue?.originValue, "100 (currency not supplied, FY2024)");
+  assert.equal(revenue?.gainValue, "100 (EUR, FY blank)");
   assert.equal(revenue?.status, "missing");
   assert.equal(revenue?.updateMode, "set");
   assert.match(revenue?.note ?? "", /without changing the amount/);
   assert.equal(ebitda?.label, "EBITDA");
-  assert.equal(ebitda?.originValue, "20 (FY2025E)");
-  assert.equal(ebitda?.gainValue, "20 (FY2025A)");
+  assert.equal(ebitda?.originValue, "20 (currency not supplied, FY2025E)");
+  assert.equal(ebitda?.gainValue, "20 (EUR, FY2025A)");
   assert.equal(ebitda?.status, "conflict");
   assert.equal(review.diffs.some((diff) => /financial year/i.test(diff.label)), false);
 });
@@ -333,8 +336,8 @@ test("an omitted Gain financial-year column is flagged inside Revenue", () => {
   const [review] = createReviewQueue([origin], [gain]);
   const revenue = review.diffs.find((diff) => diff.key === "revenue");
 
-  assert.equal(revenue?.originValue, "100 (FY2024)");
-  assert.equal(revenue?.gainValue, "100 (FY column not supplied)");
+  assert.equal(revenue?.originValue, "100 (currency not supplied, FY2024)");
+  assert.equal(revenue?.gainValue, "100 (EUR, FY column not supplied)");
   assert.equal(revenue?.status, "conflict");
   assert.equal(revenue?.updateMode, undefined);
   assert.match(revenue?.note ?? "", /revenue_period/);
@@ -353,10 +356,94 @@ test("a missing Revenue amount remains addable with its financial year inline", 
   const [review] = createReviewQueue([origin], [gain]);
   const revenue = review.diffs.find((diff) => diff.key === "revenue");
 
-  assert.equal(revenue?.originValue, "75 (FY2023)");
-  assert.equal(revenue?.gainValue, "Blank");
+  assert.equal(revenue?.originValue, "75 (currency not supplied, FY2023)");
+  assert.equal(revenue?.gainValue, "Blank (EUR, FY blank)");
   assert.equal(revenue?.status, "missing");
   assert.equal(revenue?.updateMode, "set");
+});
+
+test("Origin financial currency columns are displayed with amount and FY", () => {
+  const [origin] = canonicalise(
+    [
+      {
+        companyId: "46",
+        target: "Currency display target",
+        marketedRevenue: "100",
+        marketedRevenueCurrency: "GBP",
+        marketedRevenuePeriod: "FY2024",
+        marketedEbitda: "20",
+        marketedEbitdaCurrency: "GBP",
+        marketedEbitdaPeriod: "FY2024",
+        enterpriseValue: "400",
+        enterpriseValueCurrency: "GBP",
+      },
+    ],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [
+      {
+        deal_id: "904",
+        company_id: "46",
+        asset: "Currency display target",
+        revenue_eur: "90",
+        revenue_period: "FY2024",
+        ebitda_eur: "18",
+        ebitda_year: "FY2024",
+        ev_eur: "360",
+      },
+    ],
+    "gain",
+  );
+
+  assert.equal(origin.revenueCurrency, "GBP");
+  assert.equal(origin.ebitdaCurrency, "GBP");
+  assert.equal(origin.enterpriseValueCurrency, "GBP");
+  const [review] = createReviewQueue([origin], [gain]);
+  assert.equal(review.diffs.find((diff) => diff.key === "revenue")?.originValue, "100 (GBP, FY2024)");
+  assert.equal(review.diffs.find((diff) => diff.key === "ebitda")?.originValue, "20 (GBP, FY2024)");
+  assert.equal(review.diffs.find((diff) => diff.key === "enterpriseValue")?.originValue, "400 (GBP)");
+});
+
+test("matching numeric financials with different currencies are explicit conflicts", () => {
+  const [origin] = canonicalise(
+    [
+      {
+        companyId: "47",
+        target: "Currency mismatch target",
+        marketedEbitda: "20",
+        marketedEbitdaCurrency: "GBP",
+        marketedEbitdaPeriod: "FY2024",
+        enterpriseValue: "100",
+        enterpriseValueCurrency: "GBP",
+      },
+    ],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [
+      {
+        deal_id: "905",
+        company_id: "47",
+        asset: "Currency mismatch target",
+        ebitda_eur: "20",
+        ebitda_year: "FY2024",
+        ev_eur: "100",
+      },
+    ],
+    "gain",
+  );
+
+  const [review] = createReviewQueue([origin], [gain]);
+  const ebitda = review.diffs.find((diff) => diff.key === "ebitda");
+  const enterpriseValue = review.diffs.find((diff) => diff.key === "enterpriseValue");
+  assert.equal(ebitda?.originValue, "20 (GBP, FY2024)");
+  assert.equal(ebitda?.gainValue, "20 (EUR, FY2024)");
+  assert.equal(ebitda?.status, "conflict");
+  assert.match(ebitda?.note ?? "", /difference is due to currency/i);
+  assert.equal(enterpriseValue?.originValue, "100 (GBP)");
+  assert.equal(enterpriseValue?.gainValue, "100 (EUR)");
+  assert.match(enterpriseValue?.note ?? "", /difference is due to currency/i);
 });
 
 test("current Gain bidder_names prevents false additions for Funeral Partners", () => {

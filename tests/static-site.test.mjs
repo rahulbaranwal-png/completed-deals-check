@@ -170,8 +170,8 @@ test("public matcher compares revenue and EBITDA financial years without false F
 
   assert.equal(review.diffs.some((diff) => diff.key === "revenue"), false);
   const ebitda = review.diffs.find((diff) => diff.key === "ebitda");
-  assert.equal(ebitda?.originValue, "20 (FY2025E)");
-  assert.equal(ebitda?.gainValue, "20 (FY2025A)");
+  assert.equal(ebitda?.originValue, "20 (currency not supplied, FY2025E)");
+  assert.equal(ebitda?.gainValue, "20 (EUR, FY2025A)");
   assert.equal(ebitda?.status, "conflict");
   assert.equal(review.diffs.some((diff) => /financial year/i.test(diff.label)), false);
 });
@@ -188,10 +188,49 @@ test("public matcher reports an omitted Gain financial-year column inside Revenu
   const [review] = createReviewQueue([origin], [gain]);
   const revenue = review.diffs.find((diff) => diff.key === "revenue");
 
-  assert.equal(revenue?.originValue, "100 (FY2024)");
-  assert.equal(revenue?.gainValue, "100 (FY column not supplied)");
+  assert.equal(revenue?.originValue, "100 (currency not supplied, FY2024)");
+  assert.equal(revenue?.gainValue, "100 (EUR, FY column not supplied)");
   assert.equal(revenue?.status, "conflict");
   assert.match(revenue?.note ?? "", /revenue_period/);
+});
+
+test("public matcher displays currencies and explains currency-only mismatches", () => {
+  const [origin] = canonicalise(
+    [
+      {
+        companyId: "44",
+        target: "Public currency target",
+        marketedEbitda: "20",
+        marketedEbitdaCurrency: "GBP",
+        marketedEbitdaPeriod: "FY2024",
+        enterpriseValue: "100",
+        enterpriseValueCurrency: "GBP",
+      },
+    ],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [
+      {
+        deal_id: "902",
+        company_id: "44",
+        asset: "Public currency target",
+        ebitda_eur: "20",
+        ebitda_year: "FY2024",
+        ev_eur: "100",
+      },
+    ],
+    "gain",
+  );
+
+  const [review] = createReviewQueue([origin], [gain]);
+  const ebitda = review.diffs.find((diff) => diff.key === "ebitda");
+  const enterpriseValue = review.diffs.find((diff) => diff.key === "enterpriseValue");
+  assert.equal(ebitda?.originValue, "20 (GBP, FY2024)");
+  assert.equal(ebitda?.gainValue, "20 (EUR, FY2024)");
+  assert.match(ebitda?.note ?? "", /difference is due to currency/i);
+  assert.equal(enterpriseValue?.originValue, "100 (GBP)");
+  assert.equal(enterpriseValue?.gainValue, "100 (EUR)");
 });
 
 test("comparison proposes blanks and locks conflicts", () => {

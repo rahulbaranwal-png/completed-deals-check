@@ -13,10 +13,16 @@ export type CanonicalDeal = {
   nboDeadline?: string;
   boDeadline?: string;
   enterpriseValue: string;
+  enterpriseValueCurrency?: string;
+  enterpriseValueCurrencySupplied?: boolean;
   revenue: string;
+  revenueCurrency?: string;
+  revenueCurrencySupplied?: boolean;
   revenueFinancialYear?: string;
   revenueFinancialYearSupplied?: boolean;
   ebitda: string;
+  ebitdaCurrency?: string;
+  ebitdaCurrencySupplied?: boolean;
   ebitdaFinancialYear?: string;
   ebitdaFinancialYearSupplied?: boolean;
   stake: string;
@@ -145,8 +151,36 @@ const ALIASES = {
     "transaction_value",
     "ev_eur",
     "ev_eurm",
+    "ev_gbp",
+    "ev_usd",
+    "ev_chf",
   ],
-  revenue: ["revenue", "revenue_eur", "revenue_eurm", "sales", "target_revenue", "marketedrevenue"],
+  enterpriseValueCurrency: [
+    "enterprisevaluecurrency",
+    "enterprise_value_currency",
+    "dealvaluecurrency",
+    "deal_value_currency",
+    "transaction_value_currency",
+    "ev_currency",
+  ],
+  revenue: [
+    "revenue",
+    "revenue_eur",
+    "revenue_eurm",
+    "revenue_gbp",
+    "revenue_usd",
+    "revenue_chf",
+    "sales",
+    "target_revenue",
+    "marketedrevenue",
+  ],
+  revenueCurrency: [
+    "revenuecurrency",
+    "revenue_currency",
+    "target_revenue_currency",
+    "marketedrevenuecurrency",
+    "marketed_revenue_currency",
+  ],
   revenueFinancialYear: [
     "marketedrevenueperiod",
     "marketed_revenue_period",
@@ -163,7 +197,23 @@ const ALIASES = {
     "revenue_period",
     "revenueperiod",
   ],
-  ebitda: ["ebitda", "ebitda_eur", "ebitda_eurm", "target_ebitda", "marketedebitda"],
+  ebitda: [
+    "ebitda",
+    "ebitda_eur",
+    "ebitda_eurm",
+    "ebitda_gbp",
+    "ebitda_usd",
+    "ebitda_chf",
+    "target_ebitda",
+    "marketedebitda",
+  ],
+  ebitdaCurrency: [
+    "ebitdacurrency",
+    "ebitda_currency",
+    "target_ebitda_currency",
+    "marketedebitdacurrency",
+    "marketed_ebitda_currency",
+  ],
   ebitdaFinancialYear: [
     "marketedebitdaperiod",
     "marketed_ebitda_period",
@@ -197,6 +247,15 @@ const ALIASES = {
     "buy_side_advisers",
   ],
   sourceType: ["source_type", "source", "intelligence_type", "provenance"],
+  financialCurrency: [
+    "currency",
+    "currency_code",
+    "financialcurrency",
+    "financial_currency",
+    "marketedcurrency",
+    "marketed_currency",
+    "deal_currency",
+  ],
   sourceDate: [
     "source_date",
     "intelligence_date",
@@ -244,6 +303,16 @@ function pick(row: RawRow, aliases: string[]) {
   return "";
 }
 
+function pickWithAlias(row: RawRow, aliases: string[]) {
+  let suppliedAlias = "";
+  for (const alias of aliases) {
+    if (!suppliedAlias && Object.prototype.hasOwnProperty.call(row, alias)) suppliedAlias = alias;
+    const value = String(row[alias] ?? "").trim();
+    if (value) return { value, alias };
+  }
+  return { value: "", alias: suppliedAlias };
+}
+
 function pickMany(row: RawRow, aliases: string[]) {
   return Array.from(
     new Set(
@@ -279,6 +348,32 @@ export function canonicalise(rows: RawRow[], source: "origin" | "gain" = "origin
     const buyer = pick(cleaned, ALIASES.buyer);
     const buyerCandidates = pickMany(cleaned, ALIASES.buyerCandidates);
     const combinedBuyerCandidates = appendUniqueListValues(buyerCandidates, buyer);
+    const enterpriseValue = pickWithAlias(cleaned, ALIASES.enterpriseValue);
+    const revenue = pickWithAlias(cleaned, ALIASES.revenue);
+    const ebitda = pickWithAlias(cleaned, ALIASES.ebitda);
+    const sharedCurrency = pick(cleaned, ALIASES.financialCurrency);
+    const sharedCurrencySupplied = hasAnyAlias(cleaned, ALIASES.financialCurrency);
+    const enterpriseValueCurrency = resolveFinancialCurrency(
+      cleaned,
+      enterpriseValue,
+      ALIASES.enterpriseValueCurrency,
+      sharedCurrency,
+      sharedCurrencySupplied,
+    );
+    const revenueCurrency = resolveFinancialCurrency(
+      cleaned,
+      revenue,
+      ALIASES.revenueCurrency,
+      sharedCurrency,
+      sharedCurrencySupplied,
+    );
+    const ebitdaCurrency = resolveFinancialCurrency(
+      cleaned,
+      ebitda,
+      ALIASES.ebitdaCurrency,
+      sharedCurrency,
+      sharedCurrencySupplied,
+    );
 
     return {
       id:
@@ -294,11 +389,17 @@ export function canonicalise(rows: RawRow[], source: "origin" | "gain" = "origin
       launchDate: pick(cleaned, ALIASES.launchDate),
       nboDeadline: pick(cleaned, ALIASES.nboDeadline),
       boDeadline: pick(cleaned, ALIASES.boDeadline),
-      enterpriseValue: pick(cleaned, ALIASES.enterpriseValue),
-      revenue: pick(cleaned, ALIASES.revenue),
+      enterpriseValue: enterpriseValue.value,
+      enterpriseValueCurrency: enterpriseValueCurrency.code,
+      enterpriseValueCurrencySupplied: enterpriseValueCurrency.supplied,
+      revenue: revenue.value,
+      revenueCurrency: revenueCurrency.code,
+      revenueCurrencySupplied: revenueCurrency.supplied,
       revenueFinancialYear: pick(cleaned, ALIASES.revenueFinancialYear),
       revenueFinancialYearSupplied: hasAnyAlias(cleaned, ALIASES.revenueFinancialYear),
-      ebitda: pick(cleaned, ALIASES.ebitda),
+      ebitda: ebitda.value,
+      ebitdaCurrency: ebitdaCurrency.code,
+      ebitdaCurrencySupplied: ebitdaCurrency.supplied,
       ebitdaFinancialYear: pick(cleaned, ALIASES.ebitdaFinancialYear),
       ebitdaFinancialYearSupplied: hasAnyAlias(cleaned, ALIASES.ebitdaFinancialYear),
       stake: pick(cleaned, ALIASES.stake),
@@ -561,12 +662,55 @@ function advisersCovered(originValue: string, gainValue: string) {
   return Boolean(originAdvisers.length) && originAdvisers.every((value) => gainAdvisers.includes(value));
 }
 
+const SUPPORTED_CURRENCY_CODES = [
+  "EUR",
+  "GBP",
+  "USD",
+  "CHF",
+  "CAD",
+  "AUD",
+  "SEK",
+  "NOK",
+  "DKK",
+  "JPY",
+  "CNY",
+  "INR",
+] as const;
+
 function currencyCode(value: string) {
-  const text = value.toLowerCase();
-  if (text.includes("€") || /\beur\b/.test(text)) return "EUR";
-  if (text.includes("£") || /\bgbp\b/.test(text)) return "GBP";
-  if (text.includes("$") || /\busd\b/.test(text)) return "USD";
+  const text = String(value ?? "").trim();
+  const upper = text.toUpperCase();
+  if (text.includes("€")) return "EUR";
+  if (text.includes("£")) return "GBP";
+  if (text.includes("$")) return "USD";
+  for (const code of SUPPORTED_CURRENCY_CODES) {
+    if (new RegExp(`(?:^|[^A-Z])${code}(?:[^A-Z]|$)`).test(upper)) return code;
+  }
   return "";
+}
+
+function currencyFromHeader(alias: string) {
+  const suffix = /(?:^|_)(eur|gbp|usd|chf|cad|aud|sek|nok|dkk|jpy|cny|inr)m?$/.exec(alias);
+  return suffix?.[1]?.toUpperCase() ?? "";
+}
+
+function resolveFinancialCurrency(
+  row: RawRow,
+  amount: { value: string; alias: string },
+  fieldCurrencyAliases: string[],
+  sharedCurrency: string,
+  sharedCurrencySupplied: boolean,
+) {
+  const fieldCurrencySupplied = hasAnyAlias(row, fieldCurrencyAliases);
+  const fieldCurrency = pick(row, fieldCurrencyAliases);
+  const code = currencyCode(amount.value)
+    || currencyCode(fieldCurrency)
+    || currencyFromHeader(amount.alias)
+    || currencyCode(sharedCurrency);
+  return {
+    code,
+    supplied: Boolean(code || fieldCurrencySupplied || sharedCurrencySupplied),
+  };
 }
 
 function normaliseFinancialYear(value: string) {
@@ -598,22 +742,47 @@ function financialYearDisplay(value: string) {
     : String(value ?? "").trim();
 }
 
+type FinancialFieldKey = "enterpriseValue" | "revenue" | "ebitda";
+
+function financialCurrencyFor(deal: CanonicalDeal, key: FinancialFieldKey) {
+  if (key === "enterpriseValue") {
+    return deal.enterpriseValueCurrency || currencyCode(deal.enterpriseValue);
+  }
+  if (key === "revenue") return deal.revenueCurrency || currencyCode(deal.revenue);
+  return deal.ebitdaCurrency || currencyCode(deal.ebitda);
+}
+
+function financialCurrencySuppliedFor(deal: CanonicalDeal, key: FinancialFieldKey) {
+  const inferred = Boolean(financialCurrencyFor(deal, key));
+  if (key === "enterpriseValue") return inferred || deal.enterpriseValueCurrencySupplied;
+  if (key === "revenue") return inferred || deal.revenueCurrencySupplied;
+  return inferred || deal.ebitdaCurrencySupplied;
+}
+
 function financialValueDisplay(
   amount: string,
+  currency: string,
+  currencySupplied: boolean | undefined,
   year: string,
   yearColumnSupplied: boolean | undefined,
+  showCurrencyState: boolean,
   showYearState: boolean,
 ) {
-  if (!amount) return year ? `Blank (${financialYearDisplay(year)})` : "Blank";
-  if (year) return `${amount} (${financialYearDisplay(year)})`;
-  if (!showYearState) return amount;
-  return yearColumnSupplied === false
-    ? `${amount} (FY column not supplied)`
-    : `${amount} (FY blank)`;
+  const metadata: string[] = [];
+  if (currency) metadata.push(currency);
+  else if (showCurrencyState) {
+    metadata.push(currencySupplied === false ? "currency not supplied" : "currency blank");
+  }
+  if (year) metadata.push(financialYearDisplay(year));
+  else if (showYearState) {
+    metadata.push(yearColumnSupplied === false ? "FY column not supplied" : "FY blank");
+  }
+  const base = amount || "Blank";
+  return metadata.length ? `${base} (${metadata.join(", ")})` : base;
 }
 
 function financialFieldDiff(
-  field: { key: "revenue" | "ebitda"; label: string },
+  field: { key: FinancialFieldKey; label: string },
   origin: CanonicalDeal,
   gain: CanonicalDeal,
 ): FieldDiff | null {
@@ -621,19 +790,74 @@ function financialFieldDiff(
   if (!originAmount) return null;
 
   const isRevenue = field.key === "revenue";
-  const originYear = isRevenue ? origin.revenueFinancialYear ?? "" : origin.ebitdaFinancialYear ?? "";
-  const gainYear = isRevenue ? gain.revenueFinancialYear ?? "" : gain.ebitdaFinancialYear ?? "";
+  const isEbitda = field.key === "ebitda";
+  const hasFinancialYear = isRevenue || isEbitda;
+  const originYear = isRevenue
+    ? origin.revenueFinancialYear ?? ""
+    : isEbitda
+      ? origin.ebitdaFinancialYear ?? ""
+      : "";
+  const gainYear = isRevenue
+    ? gain.revenueFinancialYear ?? ""
+    : isEbitda
+      ? gain.ebitdaFinancialYear ?? ""
+      : "";
+  const originYearColumnSupplied = isRevenue
+    ? origin.revenueFinancialYearSupplied
+    : isEbitda
+      ? origin.ebitdaFinancialYearSupplied
+      : false;
   const gainYearColumnSupplied = isRevenue
     ? gain.revenueFinancialYearSupplied
-    : gain.ebitdaFinancialYearSupplied;
+    : isEbitda
+      ? gain.ebitdaFinancialYearSupplied
+      : false;
   const gainAmount = gain[field.key];
-  const showYearState = Boolean(originYear);
-  const originDisplay = financialValueDisplay(originAmount, originYear, true, showYearState);
-  const gainDisplay = financialValueDisplay(gainAmount, gainYear, gainYearColumnSupplied, showYearState);
+  const originCurrency = financialCurrencyFor(origin, field.key);
+  const gainCurrency = financialCurrencyFor(gain, field.key);
+  const originCurrencySupplied = financialCurrencySuppliedFor(origin, field.key);
+  const gainCurrencySupplied = financialCurrencySuppliedFor(gain, field.key);
+  const showCurrencyState = Boolean(
+    originCurrency || gainCurrency || originCurrencySupplied || gainCurrencySupplied,
+  );
+  const showYearState = hasFinancialYear && Boolean(originYear);
+  const originDisplay = financialValueDisplay(
+    originAmount,
+    originCurrency,
+    originCurrencySupplied,
+    originYear,
+    originYearColumnSupplied,
+    showCurrencyState,
+    showYearState,
+  );
+  const gainDisplay = financialValueDisplay(
+    gainAmount,
+    gainCurrency,
+    gainCurrencySupplied,
+    gainYear,
+    gainYearColumnSupplied,
+    showCurrencyState,
+    showYearState,
+  );
   const requestedColumn = isRevenue ? "revenue_period" : "ebitda_year";
   const yearLabel = financialYearDisplay(originYear);
+  const currenciesConflict = Boolean(
+    originCurrency && gainCurrency && originCurrency !== gainCurrency,
+  );
+  const amountMatches = Boolean(gainAmount && numbersClose(originAmount, gainAmount, 0.001));
 
   if (!gainAmount) {
+    if (currenciesConflict) {
+      return {
+        key: field.key,
+        label: field.label,
+        originValue: originDisplay,
+        gainValue: gainDisplay,
+        status: "conflict",
+        note: `${field.label} is blank, but the currencies differ (Origin: ${originCurrency}; Gain: ${gainCurrency}). Review the destination currency before adding the amount; no conversion has been applied.`,
+      };
+    }
+
     const gainHasConflictingYear = Boolean(originYear && gainYear)
       && normaliseFinancialYear(originYear) !== normaliseFinancialYear(gainYear);
     if (gainHasConflictingYear) {
@@ -654,15 +878,32 @@ function financialFieldDiff(
       gainValue: gainDisplay,
       status: "missing",
       updateMode: "set",
-      note: originYear && gainYearColumnSupplied === false
-        ? `${field.label} is blank in Gain. Add the amount only; ${requestedColumn} was not supplied, so verify ${yearLabel} before adding the financial year.`
-        : originYear
-          ? `Add ${field.label} together with ${yearLabel}.`
-          : undefined,
+      note: !originCurrency && gainCurrency
+        ? `${field.label} is blank in Gain. Verify the Origin currency before adding the amount to the ${gainCurrency} field.`
+        : originYear && gainYearColumnSupplied === false
+          ? `${field.label} is blank in Gain. Add the amount only; ${requestedColumn} was not supplied, so verify ${yearLabel} before adding the financial year.`
+          : originYear
+            ? `Add ${field.label} together with ${originCurrency ? `${originCurrency} and ` : ""}${yearLabel}.`
+            : originCurrency
+              ? `Add ${field.label} in ${originCurrency}.`
+              : undefined,
     };
   }
 
-  if (!fieldValuesEquivalent(field.key, originAmount, gainAmount)) {
+  if (currenciesConflict) {
+    return {
+      key: field.key,
+      label: field.label,
+      originValue: originDisplay,
+      gainValue: gainDisplay,
+      status: "conflict",
+      note: amountMatches
+        ? `${field.label} numeric amount matches, but currency differs (Origin: ${originCurrency}; Gain: ${gainCurrency}). This difference is due to currency; no conversion has been applied.`
+        : `${field.label} amount and currency differ (Origin: ${originCurrency}; Gain: ${gainCurrency}). Compare the values after currency conversion; existing Gain values are not overwritten.`,
+    };
+  }
+
+  if (!amountMatches) {
     return {
       key: field.key,
       label: field.label,
@@ -675,6 +916,7 @@ function financialFieldDiff(
     };
   }
 
+  if (!hasFinancialYear) return null;
   if (!originYear) return null;
   if (gainYearColumnSupplied === false) {
     return {
@@ -916,7 +1158,11 @@ export function createReviewQueue(originDeals: CanonicalDeal[], gainDeals: Canon
       const gainValue = match.deal[field.key] ?? "";
       if (!originValue) continue;
 
-      if (field.key === "revenue" || field.key === "ebitda") {
+      if (
+        field.key === "enterpriseValue"
+        || field.key === "revenue"
+        || field.key === "ebitda"
+      ) {
         const financialDiff = financialFieldDiff(
           { key: field.key, label: field.label },
           origin,
