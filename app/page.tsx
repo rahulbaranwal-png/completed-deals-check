@@ -9,6 +9,7 @@ import {
   type ReviewDeal,
 } from "./deal-matcher";
 import { readDealRows } from "./file-reader";
+import { compileDealFiles, MAX_UPLOAD_FILES, type DealFileBatch } from "./file-compilation";
 import {
   buildDealSnapshots,
   dealFingerprint,
@@ -180,6 +181,13 @@ export default function Home() {
   const [reviews, setReviews] = useState(() => createReviewQueue(DEMO_ORIGIN, DEMO_GAIN));
   const [originFileName, setOriginFileName] = useState("Demo Origin export.csv");
   const [gainFileName, setGainFileName] = useState("Demo Gain export.csv");
+  const [originFileCount, setOriginFileCount] = useState(1);
+  const [gainFileCount, setGainFileCount] = useState(1);
+  const [originInputDealCount, setOriginInputDealCount] = useState(DEMO_ORIGIN.length);
+  const [gainInputDealCount, setGainInputDealCount] = useState(DEMO_GAIN.length);
+  const [originDuplicatesMerged, setOriginDuplicatesMerged] = useState(0);
+  const [gainDuplicatesMerged, setGainDuplicatesMerged] = useState(0);
+  const [isCompiling, setIsCompiling] = useState(false);
   const [baseline, setBaseline] = useState<OriginBaseline | null>(null);
   const [baselineLoading, setBaselineLoading] = useState(true);
   const [baselineError, setBaselineError] = useState("");
@@ -258,41 +266,64 @@ export default function Home() {
     });
   }, [filter, reviews, search]);
 
-  async function handleFile(file: File, source: "origin" | "gain") {
+  async function handleFiles(selectedFiles: File[], source: "origin" | "gain") {
+    if (!selectedFiles.length) return;
+    if (selectedFiles.length > MAX_UPLOAD_FILES) {
+      setNotice(`Choose no more than ${MAX_UPLOAD_FILES} files on the ${source === "origin" ? "Origin" : "Gain"} side.`);
+      return;
+    }
+    setIsCompiling(true);
+    setNotice(`Compiling ${selectedFiles.length} ${source === "origin" ? "Origin" : "Gain"} file${selectedFiles.length === 1 ? "" : "s"}…`);
     try {
-      const rows = await readDealRows(file);
-      const deals = canonicalise(rows, source).filter((deal) => deal.target);
-      if (!deals.length) {
-        const foundColumns = Object.keys(rows[0] ?? {}).slice(0, 6).join(", ");
-        throw new Error(
-          foundColumns
-            ? `No target/company column was detected. Found: ${foundColumns}.`
-            : "No target/company column was detected.",
-        );
-      }
+      const batches: DealFileBatch[] = await Promise.all(selectedFiles.map(async (file, fileIndex) => {
+        try {
+          const rows = await readDealRows(file);
+          const deals = canonicalise(rows, source).filter((deal) => deal.target);
+          if (!deals.length) {
+            const foundColumns = Object.keys(rows[0] ?? {}).slice(0, 6).join(", ");
+            throw new Error(foundColumns ? `No target/company column was detected. Found: ${foundColumns}.` : "No target/company column was detected.");
+          }
+          return { fileName: file.name, fileIndex, deals };
+        } catch (error) {
+          throw new Error(`${file.name}: ${error instanceof Error ? error.message : "The file could not be read."}`);
+        }
+      }));
+      const compiled = compileDealFiles(batches, source);
+      const fileLabel = selectedFiles.length === 1 ? selectedFiles[0].name : `${selectedFiles.length} files compiled`;
 
       if (source === "origin") {
-        setOriginDeals(deals);
-        setOriginFileName(file.name);
+        setOriginDeals(compiled.deals);
+        setOriginFileName(fileLabel);
+        setOriginFileCount(compiled.fileCount);
+        setOriginInputDealCount(compiled.inputDealCount);
+        setOriginDuplicatesMerged(compiled.duplicateDealCount);
         setIsOriginUpload(true);
         setComparedOriginFileName("");
         setReviews([]);
         setSelectedId("");
         setApproved(new Set());
 
-        const newCount = filterOriginDeals(deals, baseline).length;
+        const newCount = filterOriginDeals(compiled.deals, baseline).length;
         setNotice(
           baseline
-            ? `${file.name} loaded: ${newCount} new or updated deals since ${baseline.newestSourceDate}; ${deals.length - newCount} unchanged/older deals skipped.`
-            : `${file.name} loaded for the first run. All ${deals.length} deals are new.`,
+            ? `${compiled.fileCount} Origin file${compiled.fileCount === 1 ? "" : "s"} compiled into ${compiled.deals.length} unique deals: ${newCount} new or updated since ${baseline.newestSourceDate}; ${compiled.deals.length - newCount} unchanged/older deals skipped.`
+            : `${compiled.fileCount} Origin file${compiled.fileCount === 1 ? "" : "s"} compiled into ${compiled.deals.length} unique deals for the first run.`,
         );
       } else {
-        setGainDeals(deals);
-        setGainFileName(file.name);
-        setNotice(`${file.name} loaded. Select Compare files when both exports are ready.`);
+        setGainDeals(compiled.deals);
+        setGainFileName(fileLabel);
+        setGainFileCount(compiled.fileCount);
+        setGainInputDealCount(compiled.inputDealCount);
+        setGainDuplicatesMerged(compiled.duplicateDealCount);
+        setReviews([]);
+        setSelectedId("");
+        setApproved(new Set());
+        setNotice(`${compiled.fileCount} Gain file${compiled.fileCount === 1 ? "" : "s"} compiled into ${compiled.deals.length} unique deals. Select Compare files when both sides are ready.`);
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "The file could not be read.");
+    } finally {
+      setIsCompiling(false);
     }
   }
 
@@ -326,6 +357,12 @@ export default function Home() {
     setSelectedId(nextReviews[0]?.reviewId ?? "");
     setOriginFileName("Demo Origin export.csv");
     setGainFileName("Demo Gain export.csv");
+    setOriginFileCount(1);
+    setGainFileCount(1);
+    setOriginInputDealCount(DEMO_ORIGIN.length);
+    setGainInputDealCount(DEMO_GAIN.length);
+    setOriginDuplicatesMerged(0);
+    setGainDuplicatesMerged(0);
     setIsOriginUpload(false);
     setComparedOriginFileName("");
     setApproved(new Set());
@@ -459,7 +496,7 @@ export default function Home() {
           <p className="eyebrow">Completed deals</p>
           <h1>Compare Origin and Gain exports</h1>
           <p className="intro-copy">
-            Upload the latest Origin export and the current Gain export as CSV or Excel. Previously completed Origin deals are skipped automatically.
+            Upload up to 10 Origin exports and 10 Gain exports as CSV or Excel. Repeated deal snapshots are compiled before matching.
           </p>
         </div>
         <div className="rule-note">
@@ -513,37 +550,47 @@ export default function Home() {
         <label className="upload-card" data-source="origin">
           <input
             type="file"
+            multiple
               accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-            onChange={(event) => event.target.files?.[0] && handleFile(event.target.files[0], "origin")}
+            onChange={(event) => {
+              const files = Array.from(event.currentTarget.files ?? []);
+              event.currentTarget.value = "";
+              void handleFiles(files, "origin");
+            }}
           />
           <img className="source-logo source-logo-origin" src="/origin-logo.png" alt="Origin" />
           <span className="upload-source">Origin export</span>
           <strong>{originFileName}</strong>
           <span>
             {isOriginUpload
-              ? `${originDealsForRun.length} to review of ${originDeals.length} total deals`
+              ? `${originFileCount} file${originFileCount === 1 ? "" : "s"} uploaded · ${originInputDealCount} rows compiled into ${originDeals.length} deals · ${originDealsForRun.length} to review · ${originDuplicatesMerged} duplicate row${originDuplicatesMerged === 1 ? "" : "s"} merged`
               : `${originDeals.length} completed deals ready`}
           </span>
-          <small>Choose CSV or Excel</small>
+          <small>Choose up to 10 CSV or Excel files</small>
         </label>
 
         <div className="compare-card">
           <div className="flow-line"><span>Origin</span><i /><span>Gain</span></div>
-          <button className="button button-accent" type="button" onClick={runComparison}>Compare files</button>
+          <button className="button button-accent" type="button" onClick={runComparison} disabled={isCompiling}>{isCompiling ? "Compiling files…" : "Compare files"}</button>
           <p>{notice}</p>
         </div>
 
         <label className="upload-card" data-source="gain">
           <input
             type="file"
+            multiple
               accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-            onChange={(event) => event.target.files?.[0] && handleFile(event.target.files[0], "gain")}
+            onChange={(event) => {
+              const files = Array.from(event.currentTarget.files ?? []);
+              event.currentTarget.value = "";
+              void handleFiles(files, "gain");
+            }}
           />
           <img className="source-logo source-logo-gain" src="/gain-logo.png" alt="Gain" />
           <span className="upload-source">Gain export</span>
           <strong>{gainFileName}</strong>
-          <span>{gainDeals.length} completed deals ready</span>
-          <small>Choose CSV or Excel</small>
+          <span>{gainFileCount} file{gainFileCount === 1 ? "" : "s"} uploaded · {gainInputDealCount} rows compiled into {gainDeals.length} deals · {gainDuplicatesMerged} duplicate row{gainDuplicatesMerged === 1 ? "" : "s"} merged</span>
+          <small>Choose up to 10 CSV or Excel files</small>
         </label>
       </section>
 

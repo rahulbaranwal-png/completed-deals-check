@@ -303,6 +303,9 @@ test("static HTML uses relative assets and makes no server API call", async () =
   assert.match(html, /src="\.\/app\.js"/);
   assert.match(html, /src="\.\/xlsx\.full\.min\.js"/);
   assert.match(html, /accept="\.csv,\.xlsx,\.xls/);
+  assert.match(html, /id="origin-file"[\s\S]*?multiple/);
+  assert.match(html, /id="gain-file"[\s\S]*?multiple/);
+  assert.match(app, /compileDealFiles/);
   assert.match(html, /src="\.\/origin-logo\.png"/);
   assert.match(logic, /\.\/deal-matcher\.mjs/);
   assert.match(app, /deal\.diffs\.some\(\(diff\) => diff\.status === "missing"\)/);

@@ -190,6 +190,7 @@ export function canonicalise(rows, source = "origin") {
         return {
             id: (source === "origin" ? companyId || dealId || recordId : dealId || companyId || recordId) ||
                 `ROW-${index + 1}`,
+            recordId,
             dealId,
             companyId,
             target: pick(cleaned, ALIASES.target),

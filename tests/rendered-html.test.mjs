@@ -32,8 +32,9 @@ test("server-renders Completed deals check", async () => {
   assert.match(html, /Completed deals/i);
   assert.match(html, /Rolling Origin baseline/i);
   assert.match(html, /Complete run &amp; save baseline/i);
-  assert.match(html, /Choose CSV or Excel/i);
+  assert.match(html, /Choose up to 10 CSV or Excel files/i);
   assert.match(html, /\.csv,\.xlsx,\.xls/i);
+  assert.match(html, /multiple/i);
   assert.match(html, /\/xlsx\.full\.min\.js/i);
   assert.match(html, /Origin remains read-only/i);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);

@@ -2,6 +2,7 @@ export type RawRow = Record<string, string>;
 
 export type CanonicalDeal = {
   id: string;
+  recordId?: string;
   dealId?: string;
   companyId?: string;
   target: string;
@@ -379,6 +380,7 @@ export function canonicalise(rows: RawRow[], source: "origin" | "gain" = "origin
       id:
         (source === "origin" ? companyId || dealId || recordId : dealId || companyId || recordId) ||
         `ROW-${index + 1}`,
+      recordId,
       dealId,
       companyId,
       target: pick(cleaned, ALIASES.target),
