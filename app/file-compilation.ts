@@ -6,6 +6,7 @@ export type DealFileBatch = {
   fileName: string;
   fileIndex: number;
   deals: CanonicalDeal[];
+  fileKey?: string;
 };
 
 export type CompiledDeals = {
@@ -13,6 +14,12 @@ export type CompiledDeals = {
   fileCount: number;
   inputDealCount: number;
   duplicateDealCount: number;
+};
+
+export type AppendedDealFileBatches<T extends DealFileBatch> = {
+  batches: T[];
+  addedCount: number;
+  duplicateCount: number;
 };
 
 const LIST_FIELDS: Array<keyof CanonicalDeal> = ["buyerCandidates", "advisers"];
@@ -82,6 +89,39 @@ function mergeGroup(group: Array<{ deal: CanonicalDeal; fileIndex: number; rowIn
     (merged[field] as unknown) = ordered.some(({ deal }) => deal[field] === true);
   });
   return merged;
+}
+
+function batchKey(batch: DealFileBatch) {
+  return batch.fileKey || `${batch.fileName.trim().toLowerCase()}::${batch.deals.length}`;
+}
+
+export function appendDealFileBatches<T extends DealFileBatch>(
+  existing: T[],
+  incoming: T[],
+): AppendedDealFileBatches<T> {
+  const seen = new Set(existing.map(batchKey));
+  const accepted: T[] = [];
+  let duplicateCount = 0;
+
+  incoming.forEach((batch) => {
+    const key = batchKey(batch);
+    if (seen.has(key)) {
+      duplicateCount += 1;
+      return;
+    }
+    seen.add(key);
+    accepted.push(batch);
+  });
+
+  if (existing.length + accepted.length > MAX_UPLOAD_FILES) {
+    throw new Error(`Choose no more than ${MAX_UPLOAD_FILES} files per side. Remove a file before adding another.`);
+  }
+
+  return {
+    batches: [...existing, ...accepted].map((batch, fileIndex) => ({ ...batch, fileIndex }) as T),
+    addedCount: accepted.length,
+    duplicateCount,
+  };
 }
 
 export function compileDealFiles(batches: DealFileBatch[], source: "origin" | "gain"): CompiledDeals {

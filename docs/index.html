@@ -77,7 +77,7 @@
       </section>
 
       <section class="upload-grid" aria-label="Deal export files">
-        <label class="upload-card" data-source="origin">
+        <div class="upload-card" data-source="origin">
           <input
             id="origin-file"
             type="file"
@@ -88,15 +88,16 @@
           <span class="upload-source">Origin export</span>
           <strong id="origin-file-name">Demo Origin export.csv</strong>
           <span id="origin-file-count">5 completed deals ready</span>
-          <small>Choose up to 10 CSV or Excel files</small>
-        </label>
+          <div class="file-list" id="origin-file-list" aria-label="Origin files added" hidden></div>
+          <label class="file-picker-action" id="origin-picker-label" for="origin-file">Choose up to 10 CSV or Excel files</label>
+        </div>
 
         <div class="compare-card">
           <button class="button button-accent" id="compare" type="button">Compare files</button>
           <p id="notice">Demo comparison loaded — no data will be written to Gain.</p>
         </div>
 
-        <label class="upload-card" data-source="gain">
+        <div class="upload-card" data-source="gain">
           <input
             id="gain-file"
             type="file"
@@ -107,8 +108,9 @@
           <span class="upload-source">Gain export</span>
           <strong id="gain-file-name">Demo Gain export.csv</strong>
           <span id="gain-file-count">4 completed deals ready</span>
-          <small>Choose up to 10 CSV or Excel files</small>
-        </label>
+          <div class="file-list" id="gain-file-list" aria-label="Gain files added" hidden></div>
+          <label class="file-picker-action" id="gain-picker-label" for="gain-file">Choose up to 10 CSV or Excel files</label>
+        </div>
       </section>
 
       <section class="metric-grid" id="metrics" aria-label="Comparison summary"></section>

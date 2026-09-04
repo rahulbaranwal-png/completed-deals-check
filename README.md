@@ -30,7 +30,7 @@ Vercel/Netlify and set `docs` as the project root.
 
 ## What it does
 
-- Loads and compiles up to 10 Origin and 10 Gain CSV or Excel (`.xlsx`) exports in the browser.
+- Loads and compiles up to 10 Origin and 10 Gain CSV or Excel (`.xlsx`) exports in the browser, whether they are selected together or added one at a time.
 - Merges repeated deal snapshots while retaining nonblank fields and list members found in any uploaded file.
 - Matches deals using deal IDs, target and buyer names, or target and completion date.
 - Proposes Origin values only when the corresponding Gain field is blank.

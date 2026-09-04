@@ -9,7 +9,7 @@ import {
   statusLabel,
 } from "./logic.mjs";
 import { readDealRows } from "./file-reader.mjs";
-import { compileDealFiles, MAX_UPLOAD_FILES } from "./file-compilation.mjs";
+import { appendDealFileBatches, compileDealFiles, MAX_UPLOAD_FILES } from "./file-compilation.mjs";
 
 const STORAGE_KEY = "completed-deals-check-origin-baseline-v2";
 
@@ -151,8 +151,12 @@ const elements = {
   baselineInput: document.querySelector("#baseline-file"),
   originFileName: document.querySelector("#origin-file-name"),
   originFileCount: document.querySelector("#origin-file-count"),
+  originFileList: document.querySelector("#origin-file-list"),
+  originPickerLabel: document.querySelector("#origin-picker-label"),
   gainFileName: document.querySelector("#gain-file-name"),
   gainFileCount: document.querySelector("#gain-file-count"),
+  gainFileList: document.querySelector("#gain-file-list"),
+  gainPickerLabel: document.querySelector("#gain-picker-label"),
   notice: document.querySelector("#notice"),
   baselineHeadline: document.querySelector("#baseline-headline"),
   baselineDescription: document.querySelector("#baseline-description"),
@@ -195,6 +199,8 @@ const state = {
   gainInputDealCount: DEMO_GAIN.length,
   originDuplicatesMerged: 0,
   gainDuplicatesMerged: 0,
+  originBatches: [],
+  gainBatches: [],
   isCompiling: false,
   baseline: loadBaseline(),
   isOriginUpload: false,
@@ -273,8 +279,23 @@ function renderFiles() {
     ? `${state.originFileCount} file${state.originFileCount === 1 ? "" : "s"} uploaded · ${state.originInputDealCount} rows compiled into ${state.originDeals.length} deals · ${dealsForRun().length} to review · ${state.originDuplicatesMerged} duplicate row${state.originDuplicatesMerged === 1 ? "" : "s"} merged`
     : `${state.originDeals.length} completed deals ready`;
   elements.gainFileCount.textContent = `${state.gainFileCount} file${state.gainFileCount === 1 ? "" : "s"} uploaded · ${state.gainInputDealCount} rows compiled into ${state.gainDeals.length} deals · ${state.gainDuplicatesMerged} duplicate row${state.gainDuplicatesMerged === 1 ? "" : "s"} merged`;
+  renderFileList(elements.originFileList, elements.originPickerLabel, state.originBatches);
+  renderFileList(elements.gainFileList, elements.gainPickerLabel, state.gainBatches);
   elements.compare.disabled = state.isCompiling;
   elements.compare.textContent = state.isCompiling ? "Compiling files…" : "Compare files";
+}
+
+function renderFileList(container, pickerLabel, batches) {
+  container.hidden = !batches.length;
+  pickerLabel.textContent = batches.length
+    ? `Add more files (${batches.length}/${MAX_UPLOAD_FILES})`
+    : "Choose up to 10 CSV or Excel files";
+  container.innerHTML = batches.length
+    ? batches.map((batch, index) =>
+      `<span class="file-chip"><span title="${escapeHtml(batch.fileName)}">${escapeHtml(batch.fileName)}</span>` +
+      `<button type="button" data-file-index="${index}" aria-label="Remove ${escapeHtml(batch.fileName)}">×</button></span>`,
+    ).join("") + '<button class="clear-files" type="button" data-clear-files="true">Clear all</button>'
+    : "";
 }
 
 function renderBaseline() {
@@ -440,59 +461,124 @@ function setNotice(message) {
 
 async function handleDealFiles(selectedFiles, source) {
   if (!selectedFiles.length) return;
-  if (selectedFiles.length > MAX_UPLOAD_FILES) {
-    setNotice(`Choose no more than ${MAX_UPLOAD_FILES} files on the ${source === "origin" ? "Origin" : "Gain"} side.`);
+  const existingBatches = source === "origin" ? state.originBatches : state.gainBatches;
+  const existingKeys = new Set(existingBatches.map((batch) => batch.fileKey));
+  const filesToRead = [];
+  let duplicateFilesSkipped = 0;
+  selectedFiles.forEach((file) => {
+    const key = selectedFileKey(file);
+    if (existingKeys.has(key)) {
+      duplicateFilesSkipped += 1;
+      return;
+    }
+    existingKeys.add(key);
+    filesToRead.push(file);
+  });
+  if (existingBatches.length + filesToRead.length > MAX_UPLOAD_FILES) {
+    setNotice(`The ${source === "origin" ? "Origin" : "Gain"} side already has ${existingBatches.length} file${existingBatches.length === 1 ? "" : "s"}. Keep the total at ${MAX_UPLOAD_FILES} or fewer.`);
+    return;
+  }
+  if (!filesToRead.length) {
+    setNotice(`That file is already in the ${source === "origin" ? "Origin" : "Gain"} list.`);
     return;
   }
   state.isCompiling = true;
-  state.notice = `Compiling ${selectedFiles.length} ${source === "origin" ? "Origin" : "Gain"} file${selectedFiles.length === 1 ? "" : "s"}…`;
+  state.notice = `Adding ${filesToRead.length} ${source === "origin" ? "Origin" : "Gain"} file${filesToRead.length === 1 ? "" : "s"} to the current list…`;
   renderAll();
   try {
-    const batches = await Promise.all(selectedFiles.map(async (file, fileIndex) => {
+    const incomingBatches = await Promise.all(filesToRead.map(async (file, fileIndex) => {
       try {
         const rows = await readDealRows(file);
         const deals = canonicalise(rows, source).filter((deal) => deal.target);
         if (!deals.length) throw new Error("No target/company column was detected.");
-        return { fileName: file.name, fileIndex, deals };
+        return { fileKey: selectedFileKey(file), fileName: file.name, fileIndex: existingBatches.length + fileIndex, deals };
       } catch (error) {
         throw new Error(`${file.name}: ${error instanceof Error ? error.message : "The file could not be read."}`);
       }
     }));
-    const compiled = compileDealFiles(batches, source);
-    const fileLabel = selectedFiles.length === 1 ? selectedFiles[0].name : `${selectedFiles.length} files compiled`;
-
-    if (source === "origin") {
-      state.originDeals = compiled.deals;
-      state.originFileName = fileLabel;
-      state.originFileCount = compiled.fileCount;
-      state.originInputDealCount = compiled.inputDealCount;
-      state.originDuplicatesMerged = compiled.duplicateDealCount;
-      state.isOriginUpload = true;
-      state.comparedOriginFileName = "";
-      state.reviews = [];
-      state.selectedId = "";
-      state.approved = new Set();
-      const newCount = filterOriginDeals(compiled.deals, state.baseline).length;
-      state.notice = state.baseline
-        ? `${compiled.fileCount} Origin file${compiled.fileCount === 1 ? "" : "s"} compiled into ${compiled.deals.length} unique deals: ${newCount} new or updated since ${state.baseline.newestSourceDate}; ${compiled.deals.length - newCount} unchanged/older deals skipped.`
-        : `${compiled.fileCount} Origin file${compiled.fileCount === 1 ? "" : "s"} compiled into ${compiled.deals.length} unique deals for the first run.`;
-    } else {
-      state.gainDeals = compiled.deals;
-      state.gainFileName = fileLabel;
-      state.gainFileCount = compiled.fileCount;
-      state.gainInputDealCount = compiled.inputDealCount;
-      state.gainDuplicatesMerged = compiled.duplicateDealCount;
-      state.reviews = [];
-      state.selectedId = "";
-      state.approved = new Set();
-      state.notice = `${compiled.fileCount} Gain file${compiled.fileCount === 1 ? "" : "s"} compiled into ${compiled.deals.length} unique deals. Select Compare files when both sides are ready.`;
-    }
+    const appended = appendDealFileBatches(existingBatches, incomingBatches);
+    storeQueuedBatches(appended.batches, source, duplicateFilesSkipped + appended.duplicateCount);
   } catch (error) {
     state.notice = error instanceof Error ? error.message : "The file could not be read.";
   } finally {
     state.isCompiling = false;
     renderAll();
   }
+}
+
+function selectedFileKey(file) {
+  return `${file.name}::${file.size}::${file.lastModified}`;
+}
+
+function storeQueuedBatches(batches, source, duplicateFilesSkipped = 0) {
+  if (!batches.length) {
+    if (source === "origin") {
+      state.originBatches = [];
+      state.originDeals = [];
+      state.originFileName = "No Origin files added";
+      state.originFileCount = 0;
+      state.originInputDealCount = 0;
+      state.originDuplicatesMerged = 0;
+      state.isOriginUpload = false;
+      state.comparedOriginFileName = "";
+    } else {
+      state.gainBatches = [];
+      state.gainDeals = [];
+      state.gainFileName = "No Gain files added";
+      state.gainFileCount = 0;
+      state.gainInputDealCount = 0;
+      state.gainDuplicatesMerged = 0;
+    }
+    state.reviews = [];
+    state.selectedId = "";
+    state.approved = new Set();
+    state.notice = `${source === "origin" ? "Origin" : "Gain"} file list cleared.`;
+    renderAll();
+    return;
+  }
+
+  const compiled = compileDealFiles(batches, source);
+  const fileLabel = batches.length === 1 ? batches[0].fileName : `${batches.length} files ready`;
+  const duplicateMessage = duplicateFilesSkipped
+    ? ` ${duplicateFilesSkipped} already-added file${duplicateFilesSkipped === 1 ? " was" : "s were"} ignored.`
+    : "";
+  if (source === "origin") {
+    state.originBatches = batches;
+    state.originDeals = compiled.deals;
+    state.originFileName = fileLabel;
+    state.originFileCount = compiled.fileCount;
+    state.originInputDealCount = compiled.inputDealCount;
+    state.originDuplicatesMerged = compiled.duplicateDealCount;
+    state.isOriginUpload = true;
+    state.comparedOriginFileName = "";
+    const newCount = filterOriginDeals(compiled.deals, state.baseline).length;
+    state.notice = (state.baseline
+      ? `${compiled.fileCount} Origin file${compiled.fileCount === 1 ? "" : "s"} compiled into ${compiled.deals.length} unique deals: ${newCount} new or updated since ${state.baseline.newestSourceDate}; ${compiled.deals.length - newCount} unchanged/older deals skipped.`
+      : `${compiled.fileCount} Origin file${compiled.fileCount === 1 ? "" : "s"} compiled into ${compiled.deals.length} unique deals for the first run.`) + duplicateMessage;
+  } else {
+    state.gainBatches = batches;
+    state.gainDeals = compiled.deals;
+    state.gainFileName = fileLabel;
+    state.gainFileCount = compiled.fileCount;
+    state.gainInputDealCount = compiled.inputDealCount;
+    state.gainDuplicatesMerged = compiled.duplicateDealCount;
+    state.notice = `${compiled.fileCount} Gain file${compiled.fileCount === 1 ? "" : "s"} compiled into ${compiled.deals.length} unique deals. Select Compare files when both sides are ready.${duplicateMessage}`;
+  }
+  state.reviews = [];
+  state.selectedId = "";
+  state.approved = new Set();
+  renderAll();
+}
+
+function handleFileListAction(event, source) {
+  const button = event.target.closest("button");
+  if (!button) return;
+  event.preventDefault();
+  const batches = source === "origin" ? state.originBatches : state.gainBatches;
+  const remaining = button.dataset.clearFiles === "true"
+    ? []
+    : batches.filter((_, index) => index !== Number(button.dataset.fileIndex));
+  storeQueuedBatches(remaining.map((batch, fileIndex) => ({ ...batch, fileIndex })), source);
 }
 
 function runComparison() {
@@ -521,6 +607,8 @@ function restoreDemo() {
   state.gainInputDealCount = DEMO_GAIN.length;
   state.originDuplicatesMerged = 0;
   state.gainDuplicatesMerged = 0;
+  state.originBatches = [];
+  state.gainBatches = [];
   state.isOriginUpload = false;
   state.comparedOriginFileName = "";
   state.approved = new Set();
@@ -643,6 +731,8 @@ elements.gainInput.addEventListener("change", (event) => {
   event.target.value = "";
   if (files.length) handleDealFiles(files, "gain");
 });
+elements.originFileList.addEventListener("click", (event) => handleFileListAction(event, "origin"));
+elements.gainFileList.addEventListener("click", (event) => handleFileListAction(event, "gain"));
 elements.baselineInput.addEventListener("change", (event) => {
   const file = event.target.files?.[0];
   if (file) importBaseline(file);

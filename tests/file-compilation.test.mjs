@@ -1,7 +1,31 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { canonicalise, createReviewQueue } from "../docs/deal-matcher.mjs";
-import { compileDealFiles, MAX_UPLOAD_FILES } from "../docs/file-compilation.mjs";
+import { appendDealFileBatches, compileDealFiles, MAX_UPLOAD_FILES } from "../docs/file-compilation.mjs";
+
+test("files selected one at a time accumulate instead of replacing the earlier selection", () => {
+  const first = appendDealFileBatches([], [
+    { fileKey: "origin-a", fileName: "18 Aug.csv", fileIndex: 0, deals: [{ id: "1", target: "Alpha" }] },
+  ]);
+  const second = appendDealFileBatches(first.batches, [
+    { fileKey: "origin-b", fileName: "25 Aug.csv", fileIndex: 0, deals: [{ id: "2", target: "Beta" }] },
+  ]);
+
+  assert.equal(second.batches.length, 2);
+  assert.deepEqual(second.batches.map((batch) => batch.fileName), ["18 Aug.csv", "25 Aug.csv"]);
+  assert.deepEqual(second.batches.map((batch) => batch.fileIndex), [0, 1]);
+  assert.equal(compileDealFiles(second.batches, "origin").deals.length, 2);
+});
+
+test("selecting the exact same file again does not double-count it", () => {
+  const batch = { fileKey: "same-file", fileName: "31 Aug.csv", fileIndex: 0, deals: [{ id: "1", target: "Alpha" }] };
+  const first = appendDealFileBatches([], [batch]);
+  const repeated = appendDealFileBatches(first.batches, [batch]);
+
+  assert.equal(repeated.batches.length, 1);
+  assert.equal(repeated.addedCount, 0);
+  assert.equal(repeated.duplicateCount, 1);
+});
 
 test("multiple Origin files compile repeated snapshots into one enriched deal", () => {
   const older = canonicalise([{ id: "ORI-1", companyId: "42", target: "Alpha", lastUpdated: "18-08-2026", marketedEbitda: "20", suitors: "Buyer A (R1)" }], "origin");
