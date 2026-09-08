@@ -203,6 +203,54 @@ test("similar names are suggested but never auto-matched", () => {
   assert.match(review.diffs[0].gainValue, /Alpha Systems/);
 });
 
+test("Precision Medicine Group matches a unique Gain name variant when the buyer confirms it", () => {
+  const [origin] = canonicalise(
+    [
+      {
+        companyId: "452332",
+        target: "Precision Medicine Group",
+        announcedBuyer: "McKesson Corporation",
+        countryHQ: "US",
+      },
+    ],
+    "origin",
+  );
+  const [gain] = canonicalise(
+    [
+      {
+        deal_id: "10840001",
+        target_asset_id: "900001",
+        target_name: "Precision for Medicine",
+        country: "US",
+        bidder_names: "McKesson",
+      },
+    ],
+    "gain",
+  );
+
+  const match = matchGainDeal(origin, [gain]);
+  assert.equal(match?.deal.dealId, "10840001");
+  assert.equal(match?.confidence, 93);
+  assert.match(match?.reason ?? "", /similar target name \(85%\) \+ buyer/i);
+});
+
+test("an unmatched Origin country absent from Gain is reported as a coverage gap", () => {
+  const [origin] = canonicalise(
+    [{ companyId: "452332", target: "Precision Medicine Group", countryHQ: "US" }],
+    "origin",
+  );
+  const gain = canonicalise(
+    [{ deal_id: "10840002", target_asset_id: "7", target_name: "European target", country: "GB" }],
+    "gain",
+  );
+
+  const [review] = createReviewQueue([origin], gain);
+  assert.equal(origin.country, "US");
+  assert.equal(review.status, "unmatched");
+  assert.equal(review.matchReason, "Gain export does not cover US");
+  assert.match(review.diffs[0].gainValue, /No US rows exist.*covering US deals/i);
+});
+
 test("current Gain snake-case export headers map bidders and financial fields", () => {
   const [gain] = canonicalise(
     [

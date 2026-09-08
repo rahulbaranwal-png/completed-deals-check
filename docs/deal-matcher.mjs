@@ -22,6 +22,7 @@ const ALIASES = {
         "asset_id",
     ],
     target: ["target", "target_name", "deal_target", "target_asset", "company", "asset", "target_company"],
+    country: ["country", "country_hq", "countryhq", "target_country", "hq_country"],
     buyer: [
         "buyer",
         "buyers",
@@ -193,6 +194,7 @@ export function canonicalise(rows, source = "origin") {
             recordId,
             dealId,
             companyId,
+            country: pick(cleaned, ALIASES.country),
             target: pick(cleaned, ALIASES.target),
             buyer,
             buyerCandidates: combinedBuyerCandidates,
@@ -238,13 +240,34 @@ export function buildGainIndex(gainDeals) {
         byDealId: new Map(),
         byCompanyId: new Map(),
         byTarget: new Map(),
+        byBuyer: new Map(),
+        countries: new Set(),
     };
     for (const deal of gainDeals) {
         addToIndex(index.byDealId, normaliseValue(deal.dealId), deal);
         addToIndex(index.byCompanyId, normaliseValue(deal.companyId), deal);
         addToIndex(index.byTarget, normaliseName(deal.target), deal);
+        for (const buyer of splitNamedList(`${deal.buyer}; ${deal.buyerCandidates}`)) {
+            addToIndex(index.byBuyer, buyer.key, deal);
+        }
+        const country = normaliseCountry(deal.country);
+        if (country)
+            index.countries.add(country);
     }
     return index;
+}
+function normaliseCountry(value) {
+    const compact = String(value ?? "").trim().toUpperCase().replace(/[^A-Z]/g, "");
+    const aliases = {
+        UNITEDSTATES: "US",
+        UNITEDSTATESOFAMERICA: "US",
+        USA: "US",
+        UNITEDKINGDOM: "GB",
+        UK: "GB",
+        GREATBRITAIN: "GB",
+        CANADA: "CA",
+    };
+    return aliases[compact] ?? compact;
 }
 function normaliseDate(value) {
     const text = String(value ?? "").trim();
@@ -740,6 +763,23 @@ function scoreCandidate(origin, gain, kind) {
 function deduplicateDeals(deals) {
     return Array.from(new Set(deals));
 }
+function targetNameSimilarity(left, right) {
+    const normalisedLeft = normaliseName(left);
+    const normalisedRight = normaliseName(right);
+    if (!normalisedLeft || !normalisedRight)
+        return 0;
+    return 1 - levenshtein(normalisedLeft, normalisedRight) / Math.max(normalisedLeft.length, normalisedRight.length);
+}
+function buyerBackedNearTargetMatches(origin, index) {
+    const buyer = normaliseName(origin.buyer);
+    const target = normaliseName(origin.target);
+    if (buyer.length < 4 || target.length < 6)
+        return [];
+    return deduplicateDeals(index.byBuyer.get(buyer) ?? [])
+        .map((deal) => ({ deal, similarity: targetNameSimilarity(origin.target, deal.target) }))
+        .filter(({ similarity }) => similarity >= 0.82)
+        .sort((left, right) => right.similarity - left.similarity);
+}
 export function matchGainDeal(origin, gainDeals, suppliedIndex) {
     const index = suppliedIndex ?? buildGainIndex(gainDeals);
     const dealId = normaliseValue(origin.dealId);
@@ -756,8 +796,18 @@ export function matchGainDeal(origin, gainDeals, suppliedIndex) {
         : [];
     const kind = companyCandidates.length ? "company" : "target";
     const candidates = deduplicateDeals(companyCandidates.length ? companyCandidates : targetCandidates);
-    if (!candidates.length)
+    if (!candidates.length) {
+        const nearMatches = buyerBackedNearTargetMatches(origin, index);
+        if (nearMatches.length === 1) {
+            const nearMatch = nearMatches[0];
+            return {
+                deal: nearMatch.deal,
+                confidence: 93,
+                reason: `similar target name (${Math.round(nearMatch.similarity * 100)}%) + buyer`,
+            };
+        }
         return null;
+    }
     const scored = candidates
         .map((candidate) => scoreCandidate(origin, candidate, kind))
         .sort((left, right) => right.score - left.score);
@@ -803,7 +853,7 @@ export function suggestGainDeals(origin, gainDeals, suppliedIndex) {
     })
         .map(([candidate, deals]) => ({
         deal: deals[0],
-        similarity: 1 - levenshtein(target, candidate) / Math.max(target.length, candidate.length),
+            similarity: targetNameSimilarity(origin.target, deals[0].target),
     }))
         .filter(({ similarity }) => similarity >= 0.82)
         .sort((left, right) => right.similarity - left.similarity)
@@ -815,7 +865,11 @@ export function createReviewQueue(originDeals, gainDeals) {
         const match = matchGainDeal(origin, gainDeals, index);
         if (!match) {
             const suggestions = suggestGainDeals(origin, gainDeals, index);
-            const suggestionText = suggestions.length
+            const originCountry = normaliseCountry(origin.country);
+            const countryOutsideGainCoverage = Boolean(originCountry && index.countries.size && !index.countries.has(originCountry));
+            const suggestionText = countryOutsideGainCoverage
+                ? `No ${originCountry} rows exist in the uploaded Gain export. Upload a Gain pull covering ${originCountry} deals.`
+                : suggestions.length
                 ? `Possible Gain matches: ${suggestions
                     .map(({ deal, similarity }) => `${deal.target} [${deal.dealId || deal.id}, ${Math.round(similarity * 100)}% name]`)
                     .join("; ")}`
@@ -830,7 +884,11 @@ export function createReviewQueue(originDeals, gainDeals) {
                 sourceType: origin.sourceType,
                 sourceDate: origin.sourceDate,
                 matchConfidence: 0,
-                matchReason: suggestions.length ? "Similar target requires review" : "No reliable candidate",
+                matchReason: countryOutsideGainCoverage
+                    ? `Gain export does not cover ${originCountry}`
+                    : suggestions.length
+                        ? "Similar target requires review"
+                        : "No reliable candidate",
                 status: "unmatched",
                 diffs: [
                     {

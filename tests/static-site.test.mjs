@@ -100,6 +100,30 @@ test("public matcher selects the correct AEMtec Gain row", () => {
   assert.match(review.matchReason, /Target Asset ID/);
 });
 
+test("public matcher handles the Precision Medicine Group name variant and coverage gap", () => {
+  const [origin] = canonicalise(
+    [{ companyId: "452332", target: "Precision Medicine Group", announcedBuyer: "McKesson Corporation", countryHQ: "US" }],
+    "origin",
+  );
+  const [matchingGain] = canonicalise(
+    [{ deal_id: "10840001", target_asset_id: "900001", target_name: "Precision for Medicine", country: "US", bidder_names: "McKesson" }],
+    "gain",
+  );
+  const match = createReviewQueue([origin], [matchingGain])[0];
+
+  assert.equal(match.gainId, "10840001");
+  assert.equal(match.matchConfidence, 93);
+  assert.match(match.matchReason, /similar target name.*buyer/i);
+
+  const europeOnlyGain = canonicalise(
+    [{ deal_id: "10840002", target_asset_id: "7", target_name: "European target", country: "GB" }],
+    "gain",
+  );
+  const unmatched = createReviewQueue([origin], europeOnlyGain)[0];
+  assert.equal(unmatched.matchReason, "Gain export does not cover US");
+  assert.match(unmatched.diffs[0].gainValue, /Upload a Gain pull covering US deals/i);
+});
+
 test("public matcher and patch export preserve Gain bidders while appending ATOZ omissions", () => {
   const [origin] = canonicalise(
     [
