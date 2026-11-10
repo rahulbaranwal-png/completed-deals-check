@@ -1,17 +1,19 @@
 import {
-  buildEligibleDealsCsv,
   buildPatchCsv,
   canonicalise,
-  createBaseline,
   createReviewQueue,
-  filterOriginDeals,
-  isValidBaseline,
   statusLabel,
 } from "./logic.mjs";
 import { readDealRows } from "./file-reader.mjs";
 import { appendDealFileBatches, compileDealFiles, MAX_UPLOAD_FILES } from "./file-compilation.mjs";
 
-const STORAGE_KEY = "completed-deals-check-origin-baseline-v2";
+// The rolling-baseline feature was removed; clear any baseline an older
+// version of the tool left in this browser.
+try {
+  localStorage.removeItem("completed-deals-check-origin-baseline-v2");
+} catch {
+  // Storage can be unavailable (private mode, blocked site data); nothing to clean.
+}
 
 const DEMO_ORIGIN = [
   {
@@ -148,7 +150,6 @@ const DEMO_GAIN = [
 const elements = {
   originInput: document.querySelector("#origin-file"),
   gainInput: document.querySelector("#gain-file"),
-  baselineInput: document.querySelector("#baseline-file"),
   originFileName: document.querySelector("#origin-file-name"),
   originFileCount: document.querySelector("#origin-file-count"),
   originFileList: document.querySelector("#origin-file-list"),
@@ -158,13 +159,6 @@ const elements = {
   gainFileList: document.querySelector("#gain-file-list"),
   gainPickerLabel: document.querySelector("#gain-picker-label"),
   notice: document.querySelector("#notice"),
-  baselineHeadline: document.querySelector("#baseline-headline"),
-  baselineDescription: document.querySelector("#baseline-description"),
-  baselineRunSummary: document.querySelector("#baseline-run-summary"),
-  completeRun: document.querySelector("#complete-run"),
-  exportBaseline: document.querySelector("#export-baseline"),
-  importBaseline: document.querySelector("#import-baseline"),
-  exportEligible: document.querySelector("#export-eligible"),
   metrics: document.querySelector("#metrics"),
   filterRow: document.querySelector("#filter-row"),
   search: document.querySelector("#search"),
@@ -175,17 +169,6 @@ const elements = {
   restoreDemo: document.querySelector("#restore-demo"),
   exportPatch: document.querySelector("#export-patch"),
 };
-
-function loadBaseline() {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return null;
-    const parsed = JSON.parse(stored);
-    return isValidBaseline(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
 
 const state = {
   originDeals: DEMO_ORIGIN,
@@ -202,9 +185,7 @@ const state = {
   originBatches: [],
   gainBatches: [],
   isCompiling: false,
-  baseline: loadBaseline(),
   isOriginUpload: false,
-  comparedOriginFileName: "",
   selectedId: "",
   filter: "all",
   search: "",
@@ -222,19 +203,9 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
-function dealsForRun() {
-  return state.isOriginUpload
-    ? filterOriginDeals(state.originDeals, state.baseline)
-    : state.originDeals;
-}
-
-function skippedDeals() {
-  return state.isOriginUpload ? state.originDeals.length - dealsForRun().length : 0;
-}
-
 function metrics() {
   return {
-    scanned: dealsForRun().length,
+    scanned: state.originDeals.length,
     matched: state.reviews.filter((deal) => deal.status !== "unmatched").length,
     missing: state.reviews.reduce(
       (total, deal) =>
@@ -276,7 +247,7 @@ function renderFiles() {
   elements.originFileName.textContent = state.originFileName;
   elements.gainFileName.textContent = state.gainFileName;
   elements.originFileCount.textContent = state.isOriginUpload
-    ? `${state.originFileCount} file${state.originFileCount === 1 ? "" : "s"} uploaded · ${state.originInputDealCount} rows compiled into ${state.originDeals.length} deals · ${dealsForRun().length} to review · ${state.originDuplicatesMerged} duplicate row${state.originDuplicatesMerged === 1 ? "" : "s"} merged`
+    ? `${state.originFileCount} file${state.originFileCount === 1 ? "" : "s"} uploaded · ${state.originInputDealCount} rows compiled into ${state.originDeals.length} deals · ${state.originDuplicatesMerged} duplicate row${state.originDuplicatesMerged === 1 ? "" : "s"} merged`
     : `${state.originDeals.length} completed deals ready`;
   elements.gainFileCount.textContent = `${state.gainFileCount} file${state.gainFileCount === 1 ? "" : "s"} uploaded · ${state.gainInputDealCount} rows compiled into ${state.gainDeals.length} deals · ${state.gainDuplicatesMerged} duplicate row${state.gainDuplicatesMerged === 1 ? "" : "s"} merged`;
   renderFileList(elements.originFileList, elements.originPickerLabel, state.originBatches);
@@ -298,38 +269,10 @@ function renderFileList(container, pickerLabel, batches) {
     : "";
 }
 
-function renderBaseline() {
-  if (state.baseline) {
-    elements.baselineHeadline.textContent =
-      `Last completed cutoff: ${state.baseline.newestTarget} · ${state.baseline.newestSourceDate}`;
-    elements.baselineDescription.textContent =
-      `${state.baseline.totalChecked} baseline rows stored in this browser. ` +
-      "Date plus company ID/name controls filtering.";
-  } else {
-    elements.baselineHeadline.textContent = "First run — every Origin deal will be checked";
-    elements.baselineDescription.textContent =
-      "Complete the first run to save a rolling baseline in this browser.";
-  }
-
-  if (state.isOriginUpload) {
-    elements.baselineRunSummary.hidden = false;
-    elements.baselineRunSummary.innerHTML =
-      `<strong>${dealsForRun().length} to review</strong>` +
-      `<small>${skippedDeals()} cutoff/unchanged skipped</small>`;
-  } else {
-    elements.baselineRunSummary.hidden = true;
-  }
-
-  elements.completeRun.disabled =
-    !state.isOriginUpload || state.comparedOriginFileName !== state.originFileName;
-  elements.exportBaseline.disabled = !state.baseline;
-  elements.exportEligible.disabled = !state.isOriginUpload || !dealsForRun().length;
-}
-
 function renderMetrics() {
   const values = metrics();
   const cards = [
-    ["Origin deals to review", values.scanned, "After cutoff filtering", ""],
+    ["Origin deals to review", values.scanned, "Unique deals uploaded", ""],
     ["Safe matches", values.matched, "Linked to Gain", ""],
     ["Missing fields", values.missing, "Eligible to add", "metric-mint"],
     ["Conflicts", values.conflicts, "Need a decision", "metric-amber"],
@@ -446,7 +389,6 @@ function renderActions() {
 
 function renderAll() {
   renderFiles();
-  renderBaseline();
   renderMetrics();
   renderFilters();
   renderQueue();
@@ -520,7 +462,6 @@ function storeQueuedBatches(batches, source, duplicateFilesSkipped = 0) {
       state.originInputDealCount = 0;
       state.originDuplicatesMerged = 0;
       state.isOriginUpload = false;
-      state.comparedOriginFileName = "";
     } else {
       state.gainBatches = [];
       state.gainDeals = [];
@@ -550,11 +491,7 @@ function storeQueuedBatches(batches, source, duplicateFilesSkipped = 0) {
     state.originInputDealCount = compiled.inputDealCount;
     state.originDuplicatesMerged = compiled.duplicateDealCount;
     state.isOriginUpload = true;
-    state.comparedOriginFileName = "";
-    const newCount = filterOriginDeals(compiled.deals, state.baseline).length;
-    state.notice = (state.baseline
-      ? `${compiled.fileCount} Origin file${compiled.fileCount === 1 ? "" : "s"} compiled into ${compiled.deals.length} unique deals: ${newCount} new or updated since ${state.baseline.newestSourceDate}; ${compiled.deals.length - newCount} unchanged/older deals skipped.`
-      : `${compiled.fileCount} Origin file${compiled.fileCount === 1 ? "" : "s"} compiled into ${compiled.deals.length} unique deals for the first run.`) + duplicateMessage;
+    state.notice = `${compiled.fileCount} Origin file${compiled.fileCount === 1 ? "" : "s"} compiled into ${compiled.deals.length} unique deals. Select Compare files when both sides are ready.${duplicateMessage}`;
   } else {
     state.gainBatches = batches;
     state.gainDeals = compiled.deals;
@@ -582,15 +519,13 @@ function handleFileListAction(event, source) {
 }
 
 function runComparison() {
-  const eligible = state.isOriginUpload ? dealsForRun() : state.originDeals;
-  state.reviews = createReviewQueue(eligible, state.gainDeals);
+  state.reviews = createReviewQueue(state.originDeals, state.gainDeals);
   state.selectedId = state.reviews[0]?.reviewId ?? "";
   state.approved = new Set();
   state.filter = "all";
-  if (state.isOriginUpload) state.comparedOriginFileName = state.originFileName;
   state.notice =
-    `Comparison complete: ${eligible.length} eligible Origin deals checked against ` +
-    `${state.gainDeals.length} Gain deals; ${skippedDeals()} cutoff/unchanged deals skipped.`;
+    `Comparison complete: ${state.originDeals.length} Origin deals checked against ` +
+    `${state.gainDeals.length} Gain deals.`;
   renderAll();
 }
 
@@ -610,31 +545,11 @@ function restoreDemo() {
   state.originBatches = [];
   state.gainBatches = [];
   state.isOriginUpload = false;
-  state.comparedOriginFileName = "";
   state.approved = new Set();
   state.filter = "all";
   state.search = "";
   elements.search.value = "";
   state.notice = "Demo comparison restored — no data will be written to Gain.";
-  renderAll();
-}
-
-function completeRun() {
-  if (!state.isOriginUpload || state.comparedOriginFileName !== state.originFileName) {
-    setNotice("Compare the current Origin export before completing this run.");
-    return;
-  }
-  const baseline = createBaseline(
-    state.originDeals,
-    state.baseline,
-    state.originFileName,
-    new Date().toISOString(),
-  );
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(baseline));
-  state.baseline = baseline;
-  state.notice =
-    `Run completed. This browser now remembers ${baseline.totalChecked} deals through ` +
-    `${baseline.newestTarget} (${baseline.newestSourceDate}).`;
   renderAll();
 }
 
@@ -671,56 +586,6 @@ function exportPatch() {
   setNotice(`${state.approved.size} approved field updates exported. Gain has not been changed.`);
 }
 
-function exportEligible() {
-  const eligible = dealsForRun();
-  if (!eligible.length) {
-    setNotice("There are no new or updated Origin deals to export.");
-    return;
-  }
-  download(
-    "origin-new-or-updated-deals.csv",
-    buildEligibleDealsCsv(eligible),
-    "text/csv;charset=utf-8",
-  );
-  setNotice(`${eligible.length} new or updated Origin deals exported.`);
-}
-
-function exportBaseline() {
-  if (!state.baseline) {
-    setNotice("Complete a run before exporting a baseline backup.");
-    return;
-  }
-  download(
-    "completed-deals-baseline.json",
-    JSON.stringify(state.baseline, null, 2),
-    "application/json;charset=utf-8",
-  );
-  setNotice("Baseline backup exported. Import it when using a different browser or device.");
-}
-
-async function importBaseline(file) {
-  try {
-    const parsed = JSON.parse(await file.text());
-    if (!isValidBaseline(parsed)) {
-      throw new Error("This is not a valid Completed deals check baseline file.");
-    }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
-    state.baseline = parsed;
-    state.comparedOriginFileName = "";
-    state.reviews = [];
-    state.selectedId = "";
-    state.approved = new Set();
-    state.notice =
-      `Baseline imported: ${parsed.totalChecked} deals through ${parsed.newestTarget} ` +
-      `(${parsed.newestSourceDate}). Upload the latest Origin export next.`;
-    renderAll();
-  } catch (error) {
-    setNotice(error instanceof Error ? error.message : "The baseline could not be imported.");
-  } finally {
-    elements.baselineInput.value = "";
-  }
-}
-
 elements.originInput.addEventListener("change", (event) => {
   const files = Array.from(event.target.files ?? []);
   event.target.value = "";
@@ -733,17 +598,9 @@ elements.gainInput.addEventListener("change", (event) => {
 });
 elements.originFileList.addEventListener("click", (event) => handleFileListAction(event, "origin"));
 elements.gainFileList.addEventListener("click", (event) => handleFileListAction(event, "gain"));
-elements.baselineInput.addEventListener("change", (event) => {
-  const file = event.target.files?.[0];
-  if (file) importBaseline(file);
-});
 elements.compare.addEventListener("click", runComparison);
 elements.restoreDemo.addEventListener("click", restoreDemo);
 elements.exportPatch.addEventListener("click", exportPatch);
-elements.exportEligible.addEventListener("click", exportEligible);
-elements.completeRun.addEventListener("click", completeRun);
-elements.exportBaseline.addEventListener("click", exportBaseline);
-elements.importBaseline.addEventListener("click", () => elements.baselineInput.click());
 elements.search.addEventListener("input", (event) => {
   state.search = event.target.value;
   renderQueue();

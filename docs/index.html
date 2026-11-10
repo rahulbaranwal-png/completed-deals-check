@@ -52,30 +52,6 @@
         <span>This static website does not upload Origin or Gain data to a server.</span>
       </section>
 
-      <section class="baseline-strip" aria-label="Rolling Origin baseline">
-        <div class="baseline-copy">
-          <p class="eyebrow">Rolling Origin baseline</p>
-          <strong id="baseline-headline">Loading baseline…</strong>
-          <span id="baseline-description"></span>
-        </div>
-        <div class="baseline-actions">
-          <span id="baseline-run-summary" hidden></span>
-          <button class="button button-quiet" id="export-eligible" type="button">
-            Export deals to review
-          </button>
-          <button class="button button-quiet" id="export-baseline" type="button">
-            Backup baseline
-          </button>
-          <button class="button button-quiet" id="import-baseline" type="button">
-            Import baseline
-          </button>
-          <input id="baseline-file" type="file" accept=".json,application/json" hidden />
-          <button class="button button-dark" id="complete-run" type="button">
-            Complete run &amp; save baseline
-          </button>
-        </div>
-      </section>
-
       <section class="upload-grid" aria-label="Deal export files">
         <div class="upload-card" data-source="origin">
           <input
@@ -139,7 +115,6 @@
 
       <footer>
         <span>Static website · Files are processed only in this browser</span>
-        <span>Baseline is stored per browser and can be backed up as JSON</span>
         <span>Origin remains read-only · Gain changes require export and approval</span>
       </footer>
 
